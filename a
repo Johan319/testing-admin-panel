@@ -324,6 +324,84 @@ end)
 
 -- COMMAND FUNCTIONS
 
+-- Speed Input Dialog
+local function getNumberInput(title, defaultValue, minValue, maxValue)
+    local dialog = Instance.new("Frame")
+    dialog.Size = UDim2.new(0, 300, 0, 150)
+    dialog.Position = UDim2.new(0.5, -150, 0.5, -75)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    dialog.BackgroundTransparency = 0.1
+    dialog.Parent = screenGui
+    
+    Instance.new("UICorner", dialog).CornerRadius = UDim.new(0, 12)
+    Instance.new("UIStroke", dialog).Color = Color3.fromRGB(50, 50, 65)
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0, 40)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 16
+    titleLabel.Parent = dialog
+    
+    local inputBox = Instance.new("TextBox")
+    inputBox.Size = UDim2.new(0.8, 0, 0, 40)
+    inputBox.Position = UDim2.new(0.5, -120, 0.5, -20)
+    inputBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    inputBox.Text = tostring(defaultValue)
+    inputBox.PlaceholderText = "Enter number..."
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.Font = Enum.Font.Gotham
+    inputBox.TextSize = 14
+    inputBox.Parent = dialog
+    Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 6)
+    
+    local confirmBtn = Instance.new("TextButton")
+    confirmBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    confirmBtn.Position = UDim2.new(0.5, -115, 1, -45)
+    confirmBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+    confirmBtn.Text = "Confirm"
+    confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    confirmBtn.Font = Enum.Font.GothamBold
+    confirmBtn.TextSize = 14
+    confirmBtn.Parent = dialog
+    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 6)
+    
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    cancelBtn.Position = UDim2.new(0.5, 30, 1, -45)
+    cancelBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextSize = 14
+    cancelBtn.Parent = dialog
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+    
+    local result = nil
+    
+    confirmBtn.MouseButton1Click:Connect(function()
+        local num = tonumber(inputBox.Text)
+        if num then
+            if minValue and maxValue then
+                num = math.clamp(num, minValue, maxValue)
+            end
+            result = num
+        end
+        dialog:Destroy()
+    end)
+    
+    cancelBtn.MouseButton1Click:Connect(function()
+        dialog:Destroy()
+    end)
+    
+    dialog:WaitForChild("Parent")
+    repeat task.wait() until dialog.Parent == nil
+    return result
+end
+
 -- FLY FUNCTION
 local function enableFly(speed)
     if flying then
@@ -337,6 +415,7 @@ local function enableFly(speed)
         if humanoid then
             humanoid.PlatformStand = false
         end
+        showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
     else
         -- Enable fly
         if not character or not rootPart then return end
@@ -358,6 +437,8 @@ local function enableFly(speed)
         if humanoid then
             humanoid.PlatformStand = true
         end
+        
+        showNotification("✈️ Fly Mode: ON (Speed: " .. (activeStates.flySpeed) .. ")", Color3.fromRGB(0, 200, 100))
         
         -- Fly movement loop
         coroutine.wrap(function()
@@ -412,44 +493,50 @@ local function setInvisible(state)
             part.Transparency = state and 1 or 0
         end
     end
+    
+    if state then
+        showNotification("👻 You are now invisible!", Color3.fromRGB(150, 100, 255))
+    else
+        showNotification("👤 You are now visible!", Color3.fromRGB(100, 150, 255))
+    end
 end
 
 -- GODMODE FUNCTION
 local function enableGodmode()
-    activeStates.godmode = true
-    
-    -- Connect to Humanoid events
-    local function onDied()
-        if activeStates.godmode then
-            humanoid.Health = humanoid.MaxHealth
+    if not activeStates.godmode then
+        activeStates.godmode = true
+        
+        -- Connect to Humanoid events
+        local function onDied()
+            if activeStates.godmode then
+                humanoid.Health = humanoid.MaxHealth
+            end
         end
-    end
-    
-    local function onHealthChanged(health)
-        if activeStates.godmode and health <= 0 then
-            humanoid.Health = humanoid.MaxHealth
+        
+        local function onHealthChanged(health)
+            if activeStates.godmode and health <= 0 then
+                humanoid.Health = humanoid.MaxHealth
+            end
         end
+        
+        -- Protection from damage
+        humanoid.BreakJointsOnDeath = false
+        humanoid:GetPropertyChangedSignal("Health"):Connect(onHealthChanged)
+        humanoid.Died:Connect(onDied)
+        
+        showNotification("🛡️ Godmode Activated! You are immortal!", Color3.fromRGB(255, 200, 50))
+    else
+        activeStates.godmode = false
+        humanoid.BreakJointsOnDeath = true
+        showNotification("⚠️ Godmode Deactivated!", Color3.fromRGB(255, 100, 50))
     end
-    
-    -- Protection from damage
-    humanoid.BreakJointsOnDeath = false
-    humanoid:GetPropertyChangedSignal("Health"):Connect(onHealthChanged)
-    humanoid.Died:Connect(onDied)
-    
-    -- Protect from falling damage
-    local function onFallingDamage(damage)
-        if activeStates.godmode then
-            return 0
-        end
-    end
-    humanoid:GetAttributeChangedSignal("FallingDamage"):Connect(onFallingDamage)
 end
 
 -- Notification function
 local function showNotification(text, color)
     local notif = Instance.new("TextLabel")
-    notif.Size = UDim2.new(0, 200, 0, 40)
-    notif.Position = UDim2.new(0.5, -100, 0.7, 0)
+    notif.Size = UDim2.new(0, 250, 0, 40)
+    notif.Position = UDim2.new(0.5, -125, 0.7, 0)
     notif.BackgroundColor3 = color or Color3.fromRGB(30, 30, 40)
     notif.TextColor3 = Color3.fromRGB(255, 255, 255)
     notif.Text = text
@@ -575,132 +662,55 @@ cmdTitle.Font = Enum.Font.GothamBold
 cmdTitle.TextSize = 13
 cmdTitle.Parent = quickPanel
 
--- Command Input Box
-local cmdInput = Instance.new("TextBox")
-cmdInput.Size = UDim2.new(0.92, 0, 0, 35)
-cmdInput.Position = UDim2.new(0.04, 0, 0, 28)
-cmdInput.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
-cmdInput.Text = ""
-cmdInput.PlaceholderText = "fly 50 or uninvisible"
-cmdInput.TextColor3 = Color3.fromRGB(230, 230, 240)
-cmdInput.Font = Enum.Font.Gotham
-cmdInput.TextSize = 11
-cmdInput.Parent = quickPanel
-Instance.new("UICorner", cmdInput).CornerRadius = UDim.new(0, 8)
-
--- Process commands
-local function processCommand(cmd)
-    cmd = cmd:lower()
-    
-    if cmd:match("fly") then
-        local speed = tonumber(cmd:match("fly%s+(%d+)"))
-        enableFly(speed or (activeStates.fly and nil or 50))
-        if flying then
-            showNotification("✈️ Fly Mode: ON (Speed: " .. (activeStates.flySpeed) .. ")", Color3.fromRGB(0, 200, 100))
-        else
-            showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
-        end
-        
-    elseif cmd == "invisible" or cmd == "invis" then
-        setInvisible(true)
-        showNotification("👻 You are now invisible!", Color3.fromRGB(150, 100, 255))
-        
-    elseif cmd == "uninvisible" or cmd == "uninvis" or cmd == "visible" then
-        setInvisible(false)
-        showNotification("👤 You are now visible!", Color3.fromRGB(100, 150, 255))
-        
-    elseif cmd == "godmode" or cmd == "god" then
-        if not activeStates.godmode then
-            enableGodmode()
-            showNotification("🛡️ Godmode Activated!", Color3.fromRGB(255, 200, 50))
-        else
-            activeStates.godmode = false
-            humanoid.BreakJointsOnDeath = true
-            showNotification("⚠️ Godmode Deactivated!", Color3.fromRGB(255, 100, 50))
-        end
-        
-    elseif cmd:match("walkspeed") then
-        local speed = tonumber(cmd:match("walkspeed%s+(%d+)"))
+-- Command buttons
+local commands = {
+    {text = "🕊️ Fly", color = Color3.fromRGB(100, 180, 255), action = function()
+        local speed = getNumberInput("Enter Fly Speed:", 50, 1, 999999)
         if speed then
-            speed = math.clamp(speed, 16, 200)
+            enableFly(speed)
+        end
+    end},
+    {text = "👻 Invisible", color = Color3.fromRGB(150, 100, 255), action = function()
+        setInvisible(true)
+    end},
+    {text = "👤 Visible", color = Color3.fromRGB(100, 200, 150), action = function()
+        setInvisible(false)
+    end},
+    {text = "🛡️ Godmode", color = Color3.fromRGB(255, 200, 80), action = function()
+        enableGodmode()
+    end},
+    {text = "🏃 WalkSpeed", color = Color3.fromRGB(200, 150, 255), action = function()
+        local speed = getNumberInput("Enter Walk Speed:", 16, 16, 999999)
+        if speed then
             activeStates.walkspeed = speed
             humanoid.WalkSpeed = speed
             showNotification("🏃 WalkSpeed set to: " .. speed, Color3.fromRGB(100, 200, 255))
         end
-        
-    elseif cmd:match("jump") then
-        local power = tonumber(cmd:match("jump%s+(%d+)"))
+    end},
+    {text = "🦘 JumpPower", color = Color3.fromRGB(255, 150, 100), action = function()
+        local power = getNumberInput("Enter Jump Power:", 50, 50, 999999)
         if power then
-            power = math.clamp(power, 50, 500)
             activeStates.jumppower = power
             humanoid.JumpPower = power
             showNotification("🦘 JumpPower set to: " .. power, Color3.fromRGB(255, 150, 100))
         end
-        
-    else
-        showNotification("❌ Unknown command!", Color3.fromRGB(255, 50, 50))
-    end
-end
-
-cmdInput.FocusLost:Connect(function(enterPressed)
-    if enterPressed and cmdInput.Text ~= "" then
-        processCommand(cmdInput.Text)
-        cmdInput.Text = ""
-    end
-end)
-
--- Command buttons
-local commands = {
-    {text = "🚀 Fly", color = Color3.fromRGB(0, 150, 200)},
-    {text = "👻 Invisible", color = Color3.fromRGB(150, 100, 255)},
-    {text = "🛡️ Godmode", color = Color3.fromRGB(255, 200, 80)},
-    {text = "🏃 Speed 100", color = Color3.fromRGB(200, 150, 255)},
-    {text = "🦘 Jump 200", color = Color3.fromRGB(255, 150, 100)},
-    {text = "👤 Visible", color = Color3.fromRGB(100, 200, 150)}
+    end}
 }
 
 for i, cmd in ipairs(commands) do
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.92, 0, 0, 32)
-    btn.Position = UDim2.new(0.04, 0, 0, 70 + (i-1)*36)
+    btn.Size = UDim2.new(0.92, 0, 0, 38)
+    btn.Position = UDim2.new(0.04, 0, 0, 40 + (i-1)*42)
     btn.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
     btn.Text = cmd.text
     btn.TextColor3 = Color3.fromRGB(230, 230, 240)
     btn.Font = Enum.Font.Gotham
-    btn.TextSize = 11
+    btn.TextSize = 12
     btn.Parent = quickPanel
     
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
 
-    btn.MouseButton1Click:Connect(function()
-        if i == 1 then -- Fly
-            enableFly(50)
-            showNotification("✈️ Fly Mode: " .. (flying and "ON" or "OFF"), flying and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,50,50))
-        elseif i == 2 then -- Invisible
-            setInvisible(true)
-            showNotification("👻 Invisible ON", Color3.fromRGB(150,100,255))
-        elseif i == 3 then -- Godmode
-            if not activeStates.godmode then
-                enableGodmode()
-                showNotification("🛡️ Godmode ON", Color3.fromRGB(255,200,80))
-            else
-                activeStates.godmode = false
-                humanoid.BreakJointsOnDeath = true
-                showNotification("⚠️ Godmode OFF", Color3.fromRGB(255,100,50))
-            end
-        elseif i == 4 then -- Speed
-            humanoid.WalkSpeed = 100
-            activeStates.walkspeed = 100
-            showNotification("🏃 Speed set to 100", Color3.fromRGB(100,200,255))
-        elseif i == 5 then -- Jump
-            humanoid.JumpPower = 200
-            activeStates.jumppower = 200
-            showNotification("🦘 JumpPower set to 200", Color3.fromRGB(255,150,100))
-        elseif i == 6 then -- Visible
-            setInvisible(false)
-            showNotification("👤 Visible", Color3.fromRGB(100,200,150))
-        end
-    end)
+    btn.MouseButton1Click:Connect(cmd.action)
 
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(45, 45, 58)}):Play()
@@ -831,11 +841,10 @@ end)
 
 print("✅ Ultra Compact Admin Panel Loaded!")
 print("F2 on PC | Tap top-left on Mobile")
-print("\nCommands:")
-print("  fly [speed] - Toggle flight mode")
-print("  invisible - Become invisible")
-print("  uninvisible - Become visible")
-print("  godmode - Toggle godmode (immortal)")
-print("  walkspeed [number] - Set walk speed")
-print("  jump [number] - Set jump power")
-print("\nQuick buttons also available in the panel!")
+print("\nFeatures:")
+print("  • Fly - Enter any speed (1 to infinite)")
+print("  • Invisible/Visible - Toggle visibility")
+print("  • Godmode - Become immortal")
+print("  • WalkSpeed - Set any speed (16 to infinite)")
+print("  • JumpPower - Set any jump power (50 to infinite)")
+print("\nAll commands show a popup dialog for number input!")
