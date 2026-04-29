@@ -45,15 +45,17 @@ local activeStates = {
     fly = false,
     invisible = false,
     godmode = false,
-    flySpeed = 100,
+    flySpeed = 50,
     walkspeed = 16,
     jumppower = 50
 }
 
--- Fly variables
+-- Fly variables for upgraded system
 local flying = false
+local alignPos = nil
+local alignOri = nil
 local flyConnection = nil
-local camera = Workspace.CurrentCamera
+local moveVector = Vector3.new()
 
 -- Screen GUI Setup
 local screenGui = Instance.new("ScreenGui")
@@ -323,88 +325,167 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ====================== CFLY SYSTEM (NO SPINNING) ======================
+-- ====================== UPGRADED STABLE FLY SYSTEM (2026 Best Practices) ======================
+
 local function startFly(speed)
-    if not character or not rootPart then return end
+    if not character or not rootPart or not humanoid then return end
+    
+    stopFly()  -- Clean previous instance
     
     flying = true
     activeStates.fly = true
-    activeStates.flySpeed = speed or 100
-    
-    -- Disable platform stand for better control
-    if humanoid then
-        humanoid.PlatformStand = true
-        humanoid.AutoRotate = false
-    end
-    
-    -- Fly movement loop using CFrame alignment
-    flyConnection = RunService.Heartbeat:Connect(function()
-        if not flying or not rootPart or not camera then return end
-        
-        local hrp = rootPart
-        local currentPos = hrp.Position
-        local lookAtPos = currentPos + camera.CFrame.LookVector * 10
-        hrp.CFrame = CFrame.new(currentPos, lookAtPos)
-        
-        local flyDirection = Vector3.zero
-        
+    activeStates.flySpeed = speed or 50
+
+    -- Create Attachments
+    local attachment0 = Instance.new("Attachment")
+    attachment0.Parent = rootPart
+
+    -- AlignPosition (movement)
+    alignPos = Instance.new("AlignPosition")
+    alignPos.Name = "FlyAlignPosition"
+    alignPos.Attachment0 = attachment0
+    alignPos.MaxForce = 1000000
+    alignPos.Responsiveness = 25          -- Higher = snappier
+    alignPos.MaxVelocity = speed * 1.8    -- Allow some overshoot for smooth feel
+    alignPos.Parent = rootPart
+
+    -- AlignOrientation (prevents spinning + faces movement direction)
+    alignOri = Instance.new("AlignOrientation")
+    alignOri.Name = "FlyAlignOrientation"
+    alignOri.Attachment0 = attachment0
+    alignOri.MaxTorque = 1000000
+    alignOri.Responsiveness = 30
+    alignOri.Parent = rootPart
+
+    humanoid.PlatformStand = true
+    humanoid.AutoRotate = false
+
+    flyConnection = RunService.Heartbeat:Connect(function(dt)
+        if not flying or not rootPart then return end
+
+        local camera = Workspace.CurrentCamera
+        local camLook = camera.CFrame.LookVector
+        local camRight = camera.CFrame.RightVector
+
+        -- Horizontal movement (camera relative)
+        local forward = Vector3.new(camLook.X, 0, camLook.Z).Unit
+        local right   = Vector3.new(camRight.X, 0, camRight.Z).Unit
+
+        local moveDir = Vector3.new()
+
         -- PC Controls
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            flyDirection = flyDirection + camera.CFrame.LookVector
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += forward end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= forward end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= right end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += right end
+
+        -- Mobile / Combined input
+        moveDir += moveVector
+
+        local targetVelocity = Vector3.new(0, 0, 0)
+        if moveDir.Magnitude > 0 then
+            moveDir = moveDir.Unit
+            targetVelocity = moveDir * activeStates.flySpeed
         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            flyDirection = flyDirection - camera.CFrame.LookVector
+
+        -- Vertical movement
+        local vertical = 0
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vertical += 1 end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vertical -= 1 end
+
+        targetVelocity = targetVelocity + Vector3.new(0, vertical * activeStates.flySpeed, 0)
+
+        -- Apply to AlignPosition
+        alignPos.Position = rootPart.Position + targetVelocity * 0.1  -- Small lookahead for smoothness
+
+        -- Orientation: Face movement direction (or camera if not moving horizontally)
+        if moveDir.Magnitude > 0.1 then
+            local lookAt = rootPart.Position + moveDir
+            alignOri.CFrame = CFrame.lookAt(rootPart.Position, lookAt)
+        else
+            -- Keep facing camera direction when hovering
+            local flatLook = Vector3.new(camLook.X, 0, camLook.Z)
+            if flatLook.Magnitude > 0 then
+                local lookAt = rootPart.Position + flatLook
+                alignOri.CFrame = CFrame.lookAt(rootPart.Position, lookAt)
+            end
         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            flyDirection = flyDirection - camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            flyDirection = flyDirection + camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            flyDirection = flyDirection + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            flyDirection = flyDirection - Vector3.new(0, 1, 0)
-        end
-        
-        -- Normalize and apply movement
-        if flyDirection.Magnitude > 0 then
-            flyDirection = flyDirection.Unit
-        end
-        
-        hrp.Velocity = flyDirection * activeStates.flySpeed
     end)
+
+    showNotification("✈️ Advanced Fly: ON (Speed: " .. tostring(speed or 50) .. ")", Color3.fromRGB(0, 220, 100))
 end
 
 local function stopFly()
     flying = false
     activeStates.fly = false
-    
+
     if flyConnection then
         flyConnection:Disconnect()
         flyConnection = nil
     end
-    
-    if rootPart then
-        rootPart.Velocity = Vector3.zero
-    end
-    
+
+    if alignPos then alignPos:Destroy() end
+    if alignOri then alignOri:Destroy() end
+
+    alignPos = nil
+    alignOri = nil
+    moveVector = Vector3.new()
+
     if humanoid then
         humanoid.PlatformStand = false
         humanoid.AutoRotate = true
     end
+
+    showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
 end
 
 local function enableFly(speed)
     if flying then
         stopFly()
-        showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
     else
-        startFly(speed or 100)
-        showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed or 100)), Color3.fromRGB(0, 200, 100))
+        startFly(speed or 50)
     end
 end
+
+-- ====================== MOBILE FLY CONTROLS ======================
+local function setupMobileFlyControls()
+    local function handleFlyAction(actionName, inputState, inputObject)
+        if not flying then return Enum.ContextActionResult.Pass end
+
+        local camera = Workspace.CurrentCamera
+        local forward = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
+        local right   = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z).Unit
+
+        local delta = 0
+
+        if inputState == Enum.UserInputState.Begin then
+            delta = 1
+        elseif inputState == Enum.UserInputState.End then
+            delta = -1
+        end
+
+        if actionName == "FlyForward" then
+            moveVector += forward * delta
+        elseif actionName == "FlyBackward" then
+            moveVector -= forward * delta
+        elseif actionName == "FlyLeft" then
+            moveVector -= right * delta
+        elseif actionName == "FlyRight" then
+            moveVector += right * delta
+        end
+
+        return Enum.ContextActionResult.Sink
+    end
+
+    -- Bind actions for mobile
+    ContextActionService:BindAction("FlyForward", handleFlyAction, false, Enum.KeyCode.W)
+    ContextActionService:BindAction("FlyBackward", handleFlyAction, false, Enum.KeyCode.S)
+    ContextActionService:BindAction("FlyLeft", handleFlyAction, false, Enum.KeyCode.A)
+    ContextActionService:BindAction("FlyRight", handleFlyAction, false, Enum.KeyCode.D)
+end
+
+-- Setup mobile controls
+setupMobileFlyControls()
 
 -- G key toggle
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -412,15 +493,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.G then
         if flying then
             stopFly()
-            showNotification("🛑 Fly Mode: OFF (G Key)", Color3.fromRGB(200, 50, 50))
         else
             startFly(activeStates.flySpeed)
-            showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(activeStates.flySpeed)), Color3.fromRGB(0, 200, 100))
         end
     end
 end)
 
--- ====================== END CFLY SYSTEM ======================
+-- ====================== END FLY SYSTEM ======================
 
 -- INVISIBLE FUNCTION
 local function setInvisible(state)
@@ -689,16 +768,12 @@ cmdTitle.Parent = quickPanel
 local commandsList = {
     {text = "🕊️ FLY", color = Color3.fromRGB(100, 180, 255), 
      action = function()
-        getNumberInput("Set Fly Speed:", 100, 1, 999999, "Speed", function(speed)
+        getNumberInput("Set Fly Speed:", activeStates.flySpeed or 50, 1, 999999, "Speed", function(newSpeed)
             if flying then
                 stopFly()
-                task.wait(0.1)
-                startFly(speed)
-                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
-            else
-                startFly(speed)
-                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
+                task.wait(0.05)
             end
+            startFly(newSpeed)
         end)
     end},
     
@@ -885,8 +960,8 @@ print("📌 Press F2 to toggle panel")
 print("📱 Tap top-left on mobile")
 print("🎮 Press G to toggle FLY anytime!")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("✨ FLY CONTROLS:")
+print("✨ UPGRADED FLY SYSTEM:")
 print("  🖥️ PC: WASD + Space/Ctrl")
-print("  🔘 Click FLY button to set speed")
-print("  🛑 Click FLY again to turn OFF")
+print("  🔘 No spinning - Smooth control!")
+print("  🛑 Click FLY button to set speed")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
