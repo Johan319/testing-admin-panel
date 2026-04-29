@@ -368,11 +368,6 @@ local function startFly(speed)
             flyDirection = flyDirection - Vector3.new(0, 1, 0)
         end
         
-        -- Mobile controls (if any touch movement)
-        if mobileMoveDirection then
-            flyDirection = flyDirection + mobileMoveDirection
-        end
-        
         -- Normalize and apply movement
         if flyDirection.Magnitude > 0 then
             flyDirection = flyDirection.Unit
@@ -400,64 +395,6 @@ local function stopFly()
         humanoid.AutoRotate = true
     end
 end
-
--- Mobile movement variable
-local mobileMoveDirection = Vector3.zero
-
--- Handle mobile touch movement
-local function handleMobileAction(actionName, inputState, inputObject)
-    if not flying then return Enum.ContextActionResult.Pass end
-    
-    local camera = Workspace.CurrentCamera
-    
-    if actionName == "FlyForward" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection + camera.CFrame.LookVector
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection - camera.CFrame.LookVector
-        end
-    elseif actionName == "FlyBack" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection - camera.CFrame.LookVector
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection + camera.CFrame.LookVector
-        end
-    elseif actionName == "FlyLeft" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection - camera.CFrame.RightVector
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection + camera.CFrame.RightVector
-        end
-    elseif actionName == "FlyRight" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection + camera.CFrame.RightVector
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection - camera.CFrame.RightVector
-        end
-    elseif actionName == "FlyUp" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection + Vector3.new(0, 1, 0)
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection - Vector3.new(0, 1, 0)
-        end
-    elseif actionName == "FlyDown" then
-        if inputState == Enum.UserInputState.Begin then
-            mobileMoveDirection = mobileMoveDirection - Vector3.new(0, 1, 0)
-        elseif inputState == Enum.UserInputState.End then
-            mobileMoveDirection = mobileMoveDirection + Vector3.new(0, 1, 0)
-        end
-    end
-    
-    return Enum.ContextActionResult.Sink
-end
-
--- Bind mobile controls
-ContextActionService:BindAction("FlyForward", handleMobileAction, false, Enum.KeyCode.Thumbstick1)
-ContextActionService:BindAction("FlyBack", handleMobileAction, false, Enum.KeyCode.Thumbstick2)
-ContextActionService:BindAction("FlyLeft", handleMobileAction, false, Enum.KeyCode.Thumbstick3)
-ContextActionService:BindAction("FlyRight", handleMobileAction, false, Enum.KeyCode.Thumbstick4)
-ContextActionService:BindAction("FlyUp", handleMobileAction, false, Enum.KeyCode.ButtonR1)
-ContextActionService:BindAction("FlyDown", handleMobileAction, false, Enum.KeyCode.ButtonL1)
 
 local function enableFly(speed)
     if flying then
@@ -950,7 +887,6 @@ print("🎮 Press G to toggle FLY anytime!")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("✨ FLY CONTROLS:")
 print("  🖥️ PC: WASD + Space/Ctrl")
-print("  📱 Mobile: Touch controls")
 print("  🔘 Click FLY button to set speed")
 print("  🛑 Click FLY again to turn OFF")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
