@@ -1,0 +1,841 @@
+--// Compact & Beautiful Client-Side Admin Panel - Fully Functional Commands
+-- Press F2 to toggle (PC) | Tap top-left corner on mobile
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Character tracking for respawn
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    -- Re-apply states on respawn
+    if activeStates.godmode then
+        enableGodmode()
+    end
+    if activeStates.invisible then
+        setInvisible(true)
+    end
+    if activeStates.fly then
+        enableFly(activeStates.flySpeed)
+    end
+    if activeStates.walkspeed then
+        humanoid.WalkSpeed = activeStates.walkspeed
+    end
+    if activeStates.jumppower then
+        humanoid.JumpPower = activeStates.jumppower
+    end
+end)
+
+-- Active states tracking
+local activeStates = {
+    fly = false,
+    invisible = false,
+    godmode = false,
+    flySpeed = 50,
+    walkspeed = 16,
+    jumppower = 50
+}
+
+-- Fly variables
+local flying = false
+local bodyVelocity = nil
+local bodyGyro = nil
+
+-- Screen GUI Setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BeautifulAdminPanel"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Saved position data
+local savedData = {
+    minimizedBarX = 0,
+    minimizedBarY = -60,
+    minimizedBarScale = 0.5
+}
+
+-- Load saved position
+local function loadSavedPosition()
+    local success, data = pcall(function()
+        return player:GetAttribute("AdminPanel_MinimizedPos")
+    end)
+    
+    if success and data then
+        local posData = data
+        if type(posData) == "table" then
+            savedData.minimizedBarX = posData.X or 0
+            savedData.minimizedBarY = posData.Y or -60
+            savedData.minimizedBarScale = posData.Scale or 0.5
+        end
+    end
+end
+
+-- Save current position
+local function savePosition()
+    local posData = {
+        X = savedData.minimizedBarX,
+        Y = savedData.minimizedBarY,
+        Scale = savedData.minimizedBarScale
+    }
+    player:SetAttribute("AdminPanel_MinimizedPos", posData)
+end
+
+loadSavedPosition()
+
+-- Main Frame
+local main = Instance.new("Frame")
+main.Name = "MainFrame"
+main.Size = UDim2.new(0, 760, 0, 350)
+main.Position = UDim2.new(0.5, 0, 0.5, 0)
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
+main.BorderSizePixel = 0
+main.Visible = false
+main.Parent = screenGui
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
+
+local aspectRatio = Instance.new("UIAspectRatioConstraint")
+aspectRatio.AspectRatio = 560 / 340
+aspectRatio.Parent = main
+
+Instance.new("UIStroke", main).Color = Color3.fromRGB(40, 40, 52)
+
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 40)
+titleBar.BackgroundColor3 = Color3.fromRGB(20, 20, 27)
+titleBar.Parent = main
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 14)
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+titleLabel.Position = UDim2.new(0, 14, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "Admin Panel"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 16
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+local greeting = Instance.new("TextLabel")
+greeting.Size = UDim2.new(0.16, 0, 1, 0)
+greeting.Position = UDim2.new(0.085, 0, 0, 38)
+greeting.BackgroundTransparency = 1
+greeting.Text = "Hello, " .. player.Name .. "!"
+greeting.TextColor3 = Color3.fromRGB(170, 180, 200)
+greeting.Font = Enum.Font.Gotham
+greeting.TextSize = 12
+greeting.TextXAlignment = Enum.TextXAlignment.Right
+greeting.Parent = titleBar
+
+-- Minimize Button
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 32, 0, 32)
+minimizeBtn.Position = UDim2.new(1, -74, 0, 4)
+minimizeBtn.BackgroundTransparency = 1
+minimizeBtn.Text = "−"
+minimizeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 20
+minimizeBtn.Parent = titleBar
+
+-- Close Button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 32, 0, 32)
+closeBtn.Position = UDim2.new(1, -38, 0, 4)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "x"
+closeBtn.TextColor3 = Color3.fromRGB(255, 90, 90)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.Parent = titleBar
+
+-- Minimized Bar
+local minimizedBar = Instance.new("Frame")
+minimizedBar.Name = "MinimizedBar"
+minimizedBar.Size = UDim2.new(0, 220, 0, 40)
+minimizedBar.Position = UDim2.new(savedData.minimizedBarScale, savedData.minimizedBarX, 1, savedData.minimizedBarY)
+minimizedBar.AnchorPoint = Vector2.new(0.5, 1)
+minimizedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 27)
+minimizedBar.BackgroundTransparency = 0.95
+minimizedBar.Visible = false
+minimizedBar.Parent = screenGui
+
+Instance.new("UICorner", minimizedBar).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", minimizedBar).Color = Color3.fromRGB(40, 40, 52)
+
+local minimizedTitle = Instance.new("TextLabel")
+minimizedTitle.Size = UDim2.new(0.7, 0, 1, 0)
+minimizedTitle.Position = UDim2.new(0, 12, 0, 0)
+minimizedTitle.BackgroundTransparency = 1
+minimizedTitle.Text = "Admin Panel (Minimized)"
+minimizedTitle.TextColor3 = Color3.fromRGB(200, 200, 220)
+minimizedTitle.Font = Enum.Font.Gotham
+minimizedTitle.TextSize = 12
+minimizedTitle.TextXAlignment = Enum.TextXAlignment.Left
+minimizedTitle.Parent = minimizedBar
+
+local restoreBtn = Instance.new("TextButton")
+restoreBtn.Size = UDim2.new(0, 26, 0, 26)
+restoreBtn.AnchorPoint = Vector2.new(1, 0.5)
+restoreBtn.Position = UDim2.new(1, -8, 0.5, 0)
+restoreBtn.BackgroundTransparency = 1
+restoreBtn.Text = "+"
+restoreBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
+restoreBtn.Font = Enum.Font.GothamBold
+restoreBtn.TextSize = 18
+restoreBtn.Parent = minimizedBar
+
+-- Make minimized bar draggable
+local minimizedBarDragging = false
+local minimizedBarDragInput
+local minimizedBarDragStart
+local minimizedBarStartPos
+
+minimizedBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        
+        if input.Target and input.Target:IsDescendantOf(restoreBtn) then
+            return
+        end
+        
+        minimizedBarDragging = true
+        minimizedBarDragStart = input.Position
+        minimizedBarStartPos = minimizedBar.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                minimizedBarDragging = false
+                savedData.minimizedBarX = minimizedBar.Position.X.Offset
+                savedData.minimizedBarY = minimizedBar.Position.Y.Offset
+                savedData.minimizedBarScale = minimizedBar.Position.X.Scale
+                savePosition()
+            end
+        end)
+    end
+end)
+
+minimizedBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        minimizedBarDragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == minimizedBarDragInput and minimizedBarDragging then
+        local delta = input.Position - minimizedBarDragStart
+        local newX = minimizedBarStartPos.X.Offset + delta.X
+        local newY = minimizedBarStartPos.Y.Offset + delta.Y
+        local newScale = minimizedBarStartPos.X.Scale
+        
+        minimizedBar.Position = UDim2.new(newScale, newX, minimizedBarStartPos.Y.Scale, newY)
+        savedData.minimizedBarX = newX
+        savedData.minimizedBarY = newY
+        savedData.minimizedBarScale = newScale
+    end
+end)
+
+-- Minimize/Restore functionality
+minimizeBtn.MouseButton1Click:Connect(function()
+    main.Visible = false
+    minimizedBar.Visible = true
+    local tween = TweenService:Create(minimizedBar, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(savedData.minimizedBarScale, savedData.minimizedBarX, 1, savedData.minimizedBarY)
+    })
+    tween:Play()
+end)
+
+restoreBtn.MouseButton1Click:Connect(function()
+    minimizedBar.Visible = false
+    main.Visible = true
+    local tween = TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    })
+    tween:Play()
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    main.Visible = false
+    if minimizedBar.Visible then
+        minimizedBar.Visible = false
+    end
+end)
+
+-- DRAG FUNCTIONALITY FOR MAIN PANEL
+local dragging = false
+local dragInput
+local dragStart
+local startPos
+
+local function updateInput(input)
+    if dragging then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = main.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+titleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateInput(input)
+    end
+end)
+
+-- COMMAND FUNCTIONS
+
+-- FLY FUNCTION
+local function enableFly(speed)
+    if flying then
+        -- Disable fly
+        if bodyVelocity then bodyVelocity:Destroy() end
+        if bodyGyro then bodyGyro:Destroy() end
+        flying = false
+        activeStates.fly = false
+        
+        -- Restore gravity
+        if humanoid then
+            humanoid.PlatformStand = false
+        end
+    else
+        -- Enable fly
+        if not character or not rootPart then return end
+        
+        flying = true
+        activeStates.fly = true
+        activeStates.flySpeed = speed or 50
+        
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 100000
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = rootPart
+        
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(1, 1, 1) * 100000
+        bodyGyro.CFrame = rootPart.CFrame
+        bodyGyro.Parent = rootPart
+        
+        if humanoid then
+            humanoid.PlatformStand = true
+        end
+        
+        -- Fly movement loop
+        coroutine.wrap(function()
+            while flying and bodyVelocity and bodyGyro do
+                local moveVector = Vector3.new()
+                local speed = activeStates.flySpeed
+                
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveVector = moveVector + (workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveVector = moveVector - (workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveVector = moveVector - (workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveVector = moveVector + (workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    moveVector = moveVector + Vector3.new(0, 1, 0)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    moveVector = moveVector - Vector3.new(0, 1, 0)
+                end
+                
+                if moveVector.Magnitude > 0 then
+                    moveVector = moveVector.Unit * speed
+                end
+                
+                if bodyVelocity then
+                    bodyVelocity.Velocity = moveVector
+                end
+                if bodyGyro then
+                    bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+                end
+                
+                RunService.Heartbeat:Wait()
+            end
+        end)()
+    end
+end
+
+-- INVISIBLE FUNCTION
+local function setInvisible(state)
+    activeStates.invisible = state
+    
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = state and 1 or 0
+        elseif part:IsA("Decal") then
+            part.Transparency = state and 1 or 0
+        end
+    end
+end
+
+-- GODMODE FUNCTION
+local function enableGodmode()
+    activeStates.godmode = true
+    
+    -- Connect to Humanoid events
+    local function onDied()
+        if activeStates.godmode then
+            humanoid.Health = humanoid.MaxHealth
+        end
+    end
+    
+    local function onHealthChanged(health)
+        if activeStates.godmode and health <= 0 then
+            humanoid.Health = humanoid.MaxHealth
+        end
+    end
+    
+    -- Protection from damage
+    humanoid.BreakJointsOnDeath = false
+    humanoid:GetPropertyChangedSignal("Health"):Connect(onHealthChanged)
+    humanoid.Died:Connect(onDied)
+    
+    -- Protect from falling damage
+    local function onFallingDamage(damage)
+        if activeStates.godmode then
+            return 0
+        end
+    end
+    humanoid:GetAttributeChangedSignal("FallingDamage"):Connect(onFallingDamage)
+end
+
+-- Notification function
+local function showNotification(text, color)
+    local notif = Instance.new("TextLabel")
+    notif.Size = UDim2.new(0, 200, 0, 40)
+    notif.Position = UDim2.new(0.5, -100, 0.7, 0)
+    notif.BackgroundColor3 = color or Color3.fromRGB(30, 30, 40)
+    notif.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notif.Text = text
+    notif.Font = Enum.Font.Gotham
+    notif.TextSize = 14
+    notif.BackgroundTransparency = 0.2
+    notif.Parent = screenGui
+    
+    Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 8)
+    
+    game:GetService("Debris"):AddItem(notif, 2)
+    
+    local tween = TweenService:Create(notif, TweenInfo.new(0.3), {BackgroundTransparency = 1})
+    tween:Play()
+    tween.Completed:Connect(function()
+        notif:Destroy()
+    end)
+end
+
+-- Main Content Area
+local mainContent = Instance.new("Frame")
+mainContent.Size = UDim2.new(0.58, 0, 0.80, -55)
+mainContent.Position = UDim2.new(0.12, 0, 0, 75)
+mainContent.BackgroundTransparency = 1
+mainContent.Parent = main
+
+local pages = {}
+local homePage = Instance.new("Frame")
+homePage.Size = UDim2.new(1, 0, 1, 0)
+homePage.BackgroundTransparency = 1
+homePage.Visible = true
+homePage.Parent = mainContent
+pages.Home = homePage
+
+-- Compact Stat Card Function
+local function createStatCard(posX, posY, emoji, titleText, initialValue, emojiColor)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(0.48, 0, 0.47, 0)
+    card.Position = UDim2.new(posX, 0, posY, 0)
+    card.BackgroundColor3 = Color3.fromRGB(24, 24, 33)
+    card.Parent = homePage
+    
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+
+    local emojiLabel = Instance.new("TextLabel")
+    emojiLabel.Size = UDim2.new(0, 26, 0, 26)
+    emojiLabel.Position = UDim2.new(0, 12, 0, 12)
+    emojiLabel.BackgroundTransparency = 1
+    emojiLabel.Text = emoji
+    emojiLabel.TextSize = 20
+    emojiLabel.TextColor3 = emojiColor
+    emojiLabel.Font = Enum.Font.GothamBold
+    emojiLabel.Parent = card
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Size = UDim2.new(0.55, 0, 0.25, 0)
+    titleLbl.Position = UDim2.new(0.38, 0, 0.22, 0)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = titleText
+    titleLbl.TextColor3 = Color3.fromRGB(180, 180, 195)
+    titleLbl.Font = Enum.Font.Gotham
+    titleLbl.TextSize = 10
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.Parent = card
+
+    local valueLbl = Instance.new("TextLabel")
+    valueLbl.Size = UDim2.new(0.55, 0, 0.48, 0)
+    valueLbl.Position = UDim2.new(0.38, 0, 0.48, 0)
+    valueLbl.BackgroundTransparency = 1
+    valueLbl.Text = initialValue
+    valueLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    valueLbl.Font = Enum.Font.GothamBold
+    valueLbl.TextSize = 17
+    valueLbl.TextXAlignment = Enum.TextXAlignment.Left
+    valueLbl.Name = "ValueLabel"
+    valueLbl.Parent = card
+
+    return valueLbl
+end
+
+-- Create Stat Cards
+local playersValueLabel = createStatCard(0, 0, "👥", "Players", "0", Color3.fromRGB(100, 190, 255))
+local adminsValueLabel   = createStatCard(0.52, 0, "👤", "Admins", "0", Color3.fromRGB(255, 210, 90))
+local uptimeValueLabel   = createStatCard(0, 0.52, "⏱", "Server Uptime", "0m", Color3.fromRGB(100, 230, 150))
+local locationValueLabel = createStatCard(0.52, 0.52, "📍", "Location", "Calabarzon, PH", Color3.fromRGB(120, 225, 140))
+
+-- Live Updates
+local serverStartTime = tick()
+
+RunService.Heartbeat:Connect(function()
+    if not main.Visible then return end
+
+    playersValueLabel.Text = tostring(#Players:GetPlayers())
+
+    local adminCount = 0
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr:GetRankInGroup(1234567) >= 100 then
+            adminCount += 1
+        end
+    end
+    adminsValueLabel.Text = tostring(adminCount)
+
+    local uptimeSeconds = tick() - serverStartTime
+    local hours = math.floor(uptimeSeconds / 3600)
+    local minutes = math.floor((uptimeSeconds % 3600) / 60)
+    uptimeValueLabel.Text = (hours > 0 and hours .. "h " .. minutes .. "m") or (minutes .. "m")
+end)
+
+-- Quick Commands Panel
+local quickPanel = Instance.new("Frame")
+quickPanel.Size = UDim2.new(0.27, 0, 1, -50)
+quickPanel.Position = UDim2.new(0.73, 0, 0, 46)
+quickPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+quickPanel.Parent = main
+Instance.new("UICorner", quickPanel).CornerRadius = UDim.new(0, 10)
+
+local cmdTitle = Instance.new("TextLabel")
+cmdTitle.Size = UDim2.new(1, 0, 0, 26)
+cmdTitle.BackgroundTransparency = 1
+cmdTitle.Text = "Quick Cmds"
+cmdTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+cmdTitle.Font = Enum.Font.GothamBold
+cmdTitle.TextSize = 13
+cmdTitle.Parent = quickPanel
+
+-- Command Input Box
+local cmdInput = Instance.new("TextBox")
+cmdInput.Size = UDim2.new(0.92, 0, 0, 35)
+cmdInput.Position = UDim2.new(0.04, 0, 0, 28)
+cmdInput.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
+cmdInput.Text = ""
+cmdInput.PlaceholderText = "fly 50 or uninvisible"
+cmdInput.TextColor3 = Color3.fromRGB(230, 230, 240)
+cmdInput.Font = Enum.Font.Gotham
+cmdInput.TextSize = 11
+cmdInput.Parent = quickPanel
+Instance.new("UICorner", cmdInput).CornerRadius = UDim.new(0, 8)
+
+-- Process commands
+local function processCommand(cmd)
+    cmd = cmd:lower()
+    
+    if cmd:match("fly") then
+        local speed = tonumber(cmd:match("fly%s+(%d+)"))
+        enableFly(speed or (activeStates.fly and nil or 50))
+        if flying then
+            showNotification("✈️ Fly Mode: ON (Speed: " .. (activeStates.flySpeed) .. ")", Color3.fromRGB(0, 200, 100))
+        else
+            showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
+        end
+        
+    elseif cmd == "invisible" or cmd == "invis" then
+        setInvisible(true)
+        showNotification("👻 You are now invisible!", Color3.fromRGB(150, 100, 255))
+        
+    elseif cmd == "uninvisible" or cmd == "uninvis" or cmd == "visible" then
+        setInvisible(false)
+        showNotification("👤 You are now visible!", Color3.fromRGB(100, 150, 255))
+        
+    elseif cmd == "godmode" or cmd == "god" then
+        if not activeStates.godmode then
+            enableGodmode()
+            showNotification("🛡️ Godmode Activated!", Color3.fromRGB(255, 200, 50))
+        else
+            activeStates.godmode = false
+            humanoid.BreakJointsOnDeath = true
+            showNotification("⚠️ Godmode Deactivated!", Color3.fromRGB(255, 100, 50))
+        end
+        
+    elseif cmd:match("walkspeed") then
+        local speed = tonumber(cmd:match("walkspeed%s+(%d+)"))
+        if speed then
+            speed = math.clamp(speed, 16, 200)
+            activeStates.walkspeed = speed
+            humanoid.WalkSpeed = speed
+            showNotification("🏃 WalkSpeed set to: " .. speed, Color3.fromRGB(100, 200, 255))
+        end
+        
+    elseif cmd:match("jump") then
+        local power = tonumber(cmd:match("jump%s+(%d+)"))
+        if power then
+            power = math.clamp(power, 50, 500)
+            activeStates.jumppower = power
+            humanoid.JumpPower = power
+            showNotification("🦘 JumpPower set to: " .. power, Color3.fromRGB(255, 150, 100))
+        end
+        
+    else
+        showNotification("❌ Unknown command!", Color3.fromRGB(255, 50, 50))
+    end
+end
+
+cmdInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed and cmdInput.Text ~= "" then
+        processCommand(cmdInput.Text)
+        cmdInput.Text = ""
+    end
+end)
+
+-- Command buttons
+local commands = {
+    {text = "🚀 Fly", color = Color3.fromRGB(0, 150, 200)},
+    {text = "👻 Invisible", color = Color3.fromRGB(150, 100, 255)},
+    {text = "🛡️ Godmode", color = Color3.fromRGB(255, 200, 80)},
+    {text = "🏃 Speed 100", color = Color3.fromRGB(200, 150, 255)},
+    {text = "🦘 Jump 200", color = Color3.fromRGB(255, 150, 100)},
+    {text = "👤 Visible", color = Color3.fromRGB(100, 200, 150)}
+}
+
+for i, cmd in ipairs(commands) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.92, 0, 0, 32)
+    btn.Position = UDim2.new(0.04, 0, 0, 70 + (i-1)*36)
+    btn.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
+    btn.Text = cmd.text
+    btn.TextColor3 = Color3.fromRGB(230, 230, 240)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 11
+    btn.Parent = quickPanel
+    
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    btn.MouseButton1Click:Connect(function()
+        if i == 1 then -- Fly
+            enableFly(50)
+            showNotification("✈️ Fly Mode: " .. (flying and "ON" or "OFF"), flying and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,50,50))
+        elseif i == 2 then -- Invisible
+            setInvisible(true)
+            showNotification("👻 Invisible ON", Color3.fromRGB(150,100,255))
+        elseif i == 3 then -- Godmode
+            if not activeStates.godmode then
+                enableGodmode()
+                showNotification("🛡️ Godmode ON", Color3.fromRGB(255,200,80))
+            else
+                activeStates.godmode = false
+                humanoid.BreakJointsOnDeath = true
+                showNotification("⚠️ Godmode OFF", Color3.fromRGB(255,100,50))
+            end
+        elseif i == 4 then -- Speed
+            humanoid.WalkSpeed = 100
+            activeStates.walkspeed = 100
+            showNotification("🏃 Speed set to 100", Color3.fromRGB(100,200,255))
+        elseif i == 5 then -- Jump
+            humanoid.JumpPower = 200
+            activeStates.jumppower = 200
+            showNotification("🦘 JumpPower set to 200", Color3.fromRGB(255,150,100))
+        elseif i == 6 then -- Visible
+            setInvisible(false)
+            showNotification("👤 Visible", Color3.fromRGB(100,200,150))
+        end
+    end)
+
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(45, 45, 58)}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(32, 32, 42)}):Play()
+    end)
+end
+
+-- Sidebar
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 46, 1, -50)
+sidebar.Position = UDim2.new(0, 8, 0, 46)
+sidebar.BackgroundColor3 = Color3.fromRGB(19, 19, 26)
+sidebar.Parent = main
+Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12)
+
+local sidebarItems = {
+    {icon = "🏠", name = "Home", highlight = Color3.fromRGB(100, 180, 255)},
+    {icon = "👥", name = "Players"},
+    {icon = "👤", name = "Admins"},
+    {icon = "</>", name = "Cmds"},
+    {icon = "📜", name = "Logs"},
+    {icon = "⚙️", name = "Settings"}
+}
+
+local function switchPage(pageName)
+    for _, page in pairs(pages) do 
+        if page then page.Visible = false end 
+    end
+    if pages[pageName] then 
+        pages[pageName].Visible = true 
+    end
+end
+
+for i, item in ipairs(sidebarItems) do
+    local btnContainer = Instance.new("Frame")
+    btnContainer.Size = UDim2.new(1, 0, 0, 46)
+    btnContainer.Position = UDim2.new(0, 0, 0, (i-1)*50)
+    btnContainer.BackgroundTransparency = 1
+    btnContainer.Parent = sidebar
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = item.icon
+    btn.TextSize = 22
+    btn.TextColor3 = (item.name == "Home" and item.highlight) or Color3.fromRGB(140, 150, 170)
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = btnContainer
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 10)
+    label.Position = UDim2.new(0, 0, 0, 34)
+    label.BackgroundTransparency = 1
+    label.Text = item.name
+    label.TextColor3 = Color3.fromRGB(160, 170, 190)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 8
+    label.Parent = btnContainer
+
+    btn.MouseButton1Click:Connect(function()
+        switchPage(item.name)
+        for _, b in ipairs(sidebar:GetDescendants()) do
+            if b:IsA("TextButton") then
+                b.TextColor3 = Color3.fromRGB(140, 150, 170)
+            end
+        end
+        btn.TextColor3 = item.highlight or Color3.fromRGB(100, 180, 255)
+    end)
+end
+
+-- Additional pages (simplified)
+for _, name in ipairs({"Players", "Admins", "Cmds", "Logs", "Settings"}) do
+    local page = Instance.new("Frame")
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.Visible = false
+    page.Parent = mainContent
+    
+    local placeholder = Instance.new("TextLabel")
+    placeholder.Size = UDim2.new(1, 0, 1, 0)
+    placeholder.BackgroundTransparency = 1
+    placeholder.Text = name .. " Page\n(Coming Soon)"
+    placeholder.TextColor3 = Color3.fromRGB(180, 180, 200)
+    placeholder.Font = Enum.Font.Gotham
+    placeholder.TextSize = 20
+    placeholder.Parent = page
+    
+    pages[name] = page
+end
+
+-- Toggle (F2)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F2 then
+        if main.Visible then
+            main.Visible = false
+            minimizedBar.Visible = true
+        else
+            if minimizedBar.Visible then
+                minimizedBar.Visible = false
+            end
+            main.Visible = true
+        end
+    end
+end)
+
+-- Mobile tap detector
+local openDetector = Instance.new("TextButton")
+openDetector.Size = UDim2.new(0, 70, 0, 50)
+openDetector.Position = UDim2.new(0, 0, 0, 0)
+openDetector.BackgroundTransparency = 1
+openDetector.Text = ""
+openDetector.Parent = screenGui
+
+openDetector.MouseButton1Click:Connect(function()
+    if main.Visible then
+        main.Visible = false
+        minimizedBar.Visible = true
+    else
+        if minimizedBar.Visible then
+            minimizedBar.Visible = false
+        end
+        main.Visible = true
+    end
+end)
+
+print("✅ Ultra Compact Admin Panel Loaded!")
+print("F2 on PC | Tap top-left on Mobile")
+print("\nCommands:")
+print("  fly [speed] - Toggle flight mode")
+print("  invisible - Become invisible")
+print("  uninvisible - Become visible")
+print("  godmode - Toggle godmode (immortal)")
+print("  walkspeed [number] - Set walk speed")
+print("  jump [number] - Set jump power")
+print("\nQuick buttons also available in the panel!")
