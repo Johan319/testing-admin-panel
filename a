@@ -6,6 +6,7 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local ContextActionService = game:GetService("ContextActionService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -18,6 +19,8 @@ player.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoid = character:WaitForChild("Humanoid")
     rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    task.wait(0.5)
     
     -- Re-apply states on respawn
     if activeStates.godmode then
@@ -51,6 +54,7 @@ local activeStates = {
 local flying = false
 local bodyVelocity = nil
 local bodyGyro = nil
+local flyConnection = nil
 
 -- Screen GUI Setup
 local screenGui = Instance.new("ScreenGui")
@@ -105,6 +109,11 @@ main.Visible = false
 main.Parent = screenGui
 
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
+
+local aspectRatio = Instance.new("UIAspectRatioConstraint")
+aspectRatio.AspectRatio = 560 / 340
+aspectRatio.Parent = main
+
 Instance.new("UIStroke", main).Color = Color3.fromRGB(40, 40, 52)
 
 -- Title Bar
@@ -315,185 +324,172 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- COMMAND FUNCTIONS
-
--- Speed Input Dialog
-local function getNumberInput(title, defaultValue, minValue, maxValue, unit, callback)
-    local dialog = Instance.new("Frame")
-    dialog.Size = UDim2.new(0, 350, 0, 170)
-    dialog.Position = UDim2.new(0.5, -175, 0.5, -85)
-    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
-    dialog.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    dialog.BackgroundTransparency = 0.05
-    dialog.Parent = screenGui
+-- ====================== FLY SYSTEM (PC + MOBILE) ======================
+local function startFly(speed)
+    if not character or not rootPart then return end
     
-    Instance.new("UICorner", dialog).CornerRadius = UDim.new(0, 12)
-    Instance.new("UIStroke", dialog).Color = Color3.fromRGB(50, 50, 65)
+    flying = true
+    activeStates.fly = true
+    activeStates.flySpeed = speed or 50
     
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, 0, 0, 45)
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = title
-    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextSize = 16
-    titleLabel.Parent = dialog
+    -- Create BodyVelocity for movement
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 100000
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Parent = rootPart
     
-    local inputBox = Instance.new("TextBox")
-    inputBox.Size = UDim2.new(0.7, 0, 0, 45)
-    inputBox.Position = UDim2.new(0.5, -115, 0.5, -22)
-    inputBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-    inputBox.Text = tostring(defaultValue)
-    inputBox.PlaceholderText = "Enter number..."
-    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    inputBox.Font = Enum.Font.Gotham
-    inputBox.TextSize = 14
-    inputBox.Parent = dialog
-    Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 6)
+    -- Create BodyGyro for stabilization
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1, 1, 1) * 100000
+    bodyGyro.CFrame = rootPart.CFrame
+    bodyGyro.Parent = rootPart
     
-    local unitLabel = Instance.new("TextLabel")
-    unitLabel.Size = UDim2.new(0.15, 0, 0, 45)
-    unitLabel.Position = UDim2.new(0.5, 75, 0.5, -22)
-    unitLabel.BackgroundTransparency = 1
-    unitLabel.Text = unit or ""
-    unitLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
-    unitLabel.Font = Enum.Font.GothamBold
-    unitLabel.TextSize = 14
-    unitLabel.TextXAlignment = Enum.TextXAlignment.Left
-    unitLabel.Parent = dialog
-    
-    local confirmBtn = Instance.new("TextButton")
-    confirmBtn.Size = UDim2.new(0.35, 0, 0, 40)
-    confirmBtn.Position = UDim2.new(0.5, -120, 1, -48)
-    confirmBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
-    confirmBtn.Text = "✓ Confirm"
-    confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    confirmBtn.Font = Enum.Font.GothamBold
-    confirmBtn.TextSize = 14
-    confirmBtn.Parent = dialog
-    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 6)
-    
-    local cancelBtn = Instance.new("TextButton")
-    cancelBtn.Size = UDim2.new(0.35, 0, 0, 40)
-    cancelBtn.Position = UDim2.new(0.5, 35, 1, -48)
-    cancelBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-    cancelBtn.Text = "✗ Cancel"
-    cancelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    cancelBtn.Font = Enum.Font.GothamBold
-    cancelBtn.TextSize = 14
-    cancelBtn.Parent = dialog
-    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
-    
-    local result = nil
-    
-    local function confirm()
-        local num = tonumber(inputBox.Text)
-        if num then
-            if minValue and maxValue then
-                num = math.clamp(num, minValue, maxValue)
-            end
-            result = num
-            if callback then
-                callback(num)
-            end
-        end
-        dialog:Destroy()
+    if humanoid then
+        humanoid.PlatformStand = true
     end
     
-    confirmBtn.MouseButton1Click:Connect(confirm)
+    -- Movement variables for mobile
+    local moveDirection = Vector3.new()
+    local moveForward = false
+    local moveBack = false
+    local moveLeft = false
+    local moveRight = false
+    local moveUp = false
+    local moveDown = false
     
-    cancelBtn.MouseButton1Click:Connect(function()
-        dialog:Destroy()
-    end)
-    
-    inputBox.FocusLost:Connect(function(enterPressed)
-        if enterPressed then
-            confirm()
+    -- PC Controls
+    local pcConnection
+    pcConnection = RunService.Heartbeat:Connect(function()
+        if not flying or not bodyVelocity then
+            if pcConnection then pcConnection:Disconnect() end
+            return
+        end
+        
+        local moveVector = Vector3.new()
+        local currentSpeed = activeStates.flySpeed
+        
+        -- PC Keyboard controls
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveVector = moveVector + (Workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
+            moveForward = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveVector = moveVector - (Workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
+            moveBack = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveVector = moveVector - (Workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
+            moveLeft = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveVector = moveVector + (Workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
+            moveRight = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveVector = moveVector + Vector3.new(0, 1, 0)
+            moveUp = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            moveVector = moveVector - Vector3.new(0, 1, 0)
+            moveDown = true
+        end
+        
+        -- Apply movement from mobile (if any)
+        if moveDirection.Magnitude > 0 then
+            moveVector = moveVector + moveDirection
+        end
+        
+        if moveVector.Magnitude > 0 then
+            moveVector = moveVector.Unit * currentSpeed
+        end
+        
+        if bodyVelocity then
+            bodyVelocity.Velocity = moveVector
+        end
+        if bodyGyro then
+            bodyGyro.CFrame = Workspace.CurrentCamera.CFrame
         end
     end)
     
-    return function()
-        return result
+    -- Mobile Controls using ContextActionService
+    local function handleMobileAction(actionName, inputState, inputObject)
+        if not flying then return Enum.ContextActionResult.Pass end
+        
+        local moveVec = Vector3.new()
+        local camera = Workspace.CurrentCamera
+        local forwardVector = camera.CFrame.LookVector * Vector3.new(1, 0, 1)
+        local rightVector = camera.CFrame.RightVector * Vector3.new(1, 0, 1)
+        
+        if actionName == "FlyForward" then
+            moveDirection = moveDirection + forwardVector
+        elseif actionName == "FlyBack" then
+            moveDirection = moveDirection - forwardVector
+        elseif actionName == "FlyLeft" then
+            moveDirection = moveDirection - rightVector
+        elseif actionName == "FlyRight" then
+            moveDirection = moveDirection + rightVector
+        elseif actionName == "FlyUp" then
+            moveDirection = moveDirection + Vector3.new(0, 1, 0)
+        elseif actionName == "FlyDown" then
+            moveDirection = moveDirection - Vector3.new(0, 1, 0)
+        end
+        
+        if inputState == Enum.UserInputState.End then
+            -- Reset moveDirection when button released
+            moveDirection = Vector3.new()
+        end
+        
+        return Enum.ContextActionResult.Sink
     end
+    
+    -- Bind mobile controls
+    ContextActionService:BindAction("FlyForward", handleMobileAction, false, Enum.KeyCode.Thumbstick1, Enum.UserInputType.Touch)
+    ContextActionService:BindAction("FlyBack", handleMobileAction, false, Enum.KeyCode.Thumbstick2, Enum.UserInputType.Touch)
+    ContextActionService:BindAction("FlyLeft", handleMobileAction, false, Enum.KeyCode.Thumbstick3, Enum.UserInputType.Touch)
+    ContextActionService:BindAction("FlyRight", handleMobileAction, false, Enum.KeyCode.Thumbstick4, Enum.UserInputType.Touch)
+    ContextActionService:BindAction("FlyUp", handleMobileAction, false, Enum.KeyCode.ButtonR1, Enum.UserInputType.Touch)
+    ContextActionService:BindAction("FlyDown", handleMobileAction, false, Enum.KeyCode.ButtonL1, Enum.UserInputType.Touch)
+    
+    -- Store connections for cleanup
+    flyConnection = pcConnection
 end
 
--- FLY FUNCTION
+local function stopFly()
+    flying = false
+    activeStates.fly = false
+    
+    if bodyVelocity then bodyVelocity:Destroy() end
+    if bodyGyro then bodyGyro:Destroy() end
+    if flyConnection then flyConnection:Disconnect() end
+    
+    bodyVelocity = nil
+    bodyGyro = nil
+    flyConnection = nil
+    
+    if humanoid then
+        humanoid.PlatformStand = false
+    end
+    
+    -- Unbind mobile controls
+    ContextActionService:UnbindAction("FlyForward")
+    ContextActionService:UnbindAction("FlyBack")
+    ContextActionService:UnbindAction("FlyLeft")
+    ContextActionService:UnbindAction("FlyRight")
+    ContextActionService:UnbindAction("FlyUp")
+    ContextActionService:UnbindAction("FlyDown")
+end
+
 local function enableFly(speed)
     if flying then
-        -- Disable fly
-        if bodyVelocity then bodyVelocity:Destroy() end
-        if bodyGyro then bodyGyro:Destroy() end
-        flying = false
-        activeStates.fly = false
-        if humanoid then
-            humanoid.PlatformStand = false
-        end
+        stopFly()
         showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
     else
-        -- Enable fly
-        if not character or not rootPart then return end
-        
-        flying = true
-        activeStates.fly = true
-        activeStates.flySpeed = speed or 50
-        
-        bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 100000
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.Parent = rootPart
-        
-        bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(1, 1, 1) * 100000
-        bodyGyro.CFrame = rootPart.CFrame
-        bodyGyro.Parent = rootPart
-        
-        if humanoid then
-            humanoid.PlatformStand = true
-        end
-        
-        showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
-        
-        -- Fly movement loop
-        coroutine.wrap(function()
-            while flying and bodyVelocity and bodyGyro do
-                local moveVector = Vector3.new()
-                local currentSpeed = activeStates.flySpeed
-                
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                    moveVector = moveVector + (workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                    moveVector = moveVector - (workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1))
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                    moveVector = moveVector - (workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                    moveVector = moveVector + (workspace.CurrentCamera.CFrame.RightVector * Vector3.new(1, 0, 1))
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                    moveVector = moveVector + Vector3.new(0, 1, 0)
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                    moveVector = moveVector - Vector3.new(0, 1, 0)
-                end
-                
-                if moveVector.Magnitude > 0 then
-                    moveVector = moveVector.Unit * currentSpeed
-                end
-                
-                if bodyVelocity then
-                    bodyVelocity.Velocity = moveVector
-                end
-                if bodyGyro then
-                    bodyGyro.CFrame = workspace.CurrentCamera.CFrame
-                end
-                
-                RunService.Heartbeat:Wait()
-            end
-        end)()
+        startFly(speed or 50)
+        showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed or 50)), Color3.fromRGB(0, 200, 100))
     end
 end
+
+-- ====================== END FLY SYSTEM ======================
 
 -- INVISIBLE FUNCTION
 local function setInvisible(state)
@@ -565,6 +561,93 @@ local function showNotification(text, color)
     notif:Destroy()
 end
 
+-- Speed Input Dialog
+local function getNumberInput(title, defaultValue, minValue, maxValue, unit, callback)
+    local dialog = Instance.new("Frame")
+    dialog.Size = UDim2.new(0, 350, 0, 170)
+    dialog.Position = UDim2.new(0.5, -175, 0.5, -85)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    dialog.BackgroundTransparency = 0.05
+    dialog.Parent = screenGui
+    
+    Instance.new("UICorner", dialog).CornerRadius = UDim.new(0, 12)
+    Instance.new("UIStroke", dialog).Color = Color3.fromRGB(50, 50, 65)
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0, 45)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 16
+    titleLabel.Parent = dialog
+    
+    local inputBox = Instance.new("TextBox")
+    inputBox.Size = UDim2.new(0.7, 0, 0, 45)
+       inputBox.Position = UDim2.new(0.5, -115, 0.5, -22)
+    inputBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    inputBox.Text = tostring(defaultValue)
+    inputBox.PlaceholderText = "Enter number..."
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.Font = Enum.Font.Gotham
+    inputBox.TextSize = 14
+    inputBox.Parent = dialog
+    Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 6)
+    
+    local unitLabel = Instance.new("TextLabel")
+    unitLabel.Size = UDim2.new(0.15, 0, 0, 45)
+    unitLabel.Position = UDim2.new(0.5, 75, 0.5, -22)
+    unitLabel.BackgroundTransparency = 1
+    unitLabel.Text = unit or ""
+    unitLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+    unitLabel.Font = Enum.Font.GothamBold
+    unitLabel.TextSize = 14
+    unitLabel.TextXAlignment = Enum.TextXAlignment.Left
+    unitLabel.Parent = dialog
+    
+    local confirmBtn = Instance.new("TextButton")
+    confirmBtn.Size = UDim2.new(0.35, 0, 0, 40)
+    confirmBtn.Position = UDim2.new(0.5, -120, 1, -48)
+    confirmBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+    confirmBtn.Text = "✓ Confirm"
+    confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    confirmBtn.Font = Enum.Font.GothamBold
+    confirmBtn.TextSize = 14
+    confirmBtn.Parent = dialog
+    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 6)
+    
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.new(0.35, 0, 0, 40)
+    cancelBtn.Position = UDim2.new(0.5, 35, 1, -48)
+    cancelBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    cancelBtn.Text = "✗ Cancel"
+    cancelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextSize = 14
+    cancelBtn.Parent = dialog
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+    
+    local function confirm()
+        local num = tonumber(inputBox.Text)
+        if num then
+            if minValue and maxValue then
+                num = math.clamp(num, minValue, maxValue)
+            end
+            if callback then
+                callback(num)
+            end
+        end
+        dialog:Destroy()
+    end
+    
+    confirmBtn.MouseButton1Click:Connect(confirm)
+    cancelBtn.MouseButton1Click:Connect(function() dialog:Destroy() end)
+    inputBox.FocusLost:Connect(function(enterPressed) if enterPressed then confirm() end end)
+end
+
+-- ====================== ORIGINAL MAIN CONTENT RESTORED ======================
+
 -- Main Content Area
 local mainContent = Instance.new("Frame")
 mainContent.Size = UDim2.new(0.58, 0, 0.80, -55)
@@ -580,7 +663,7 @@ homePage.Visible = true
 homePage.Parent = mainContent
 pages.Home = homePage
 
--- Compact Stat Card Function
+-- Improved Compact Stat Card Function
 local function createStatCard(posX, posY, emoji, titleText, initialValue, emojiColor)
     local card = Instance.new("Frame")
     card.Size = UDim2.new(0.48, 0, 0.47, 0)
@@ -677,11 +760,13 @@ local commandsList = {
      action = function()
         getNumberInput("Set Fly Speed:", 50, 1, 999999, "Speed", function(speed)
             if flying then
-                enableFly()
+                stopFly()
                 task.wait(0.1)
-                enableFly(speed)
+                startFly(speed)
+                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
             else
-                enableFly(speed)
+                startFly(speed)
+                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
             end
         end)
     end},
@@ -706,7 +791,7 @@ local commandsList = {
         getNumberInput("Set Walk Speed:", 16, 16, 999999, "Speed", function(speed)
             activeStates.walkspeed = speed
             humanoid.WalkSpeed = speed
-            showNotification("🏃 WalkSpeed set to: " .. speed, Color3.fromRGB(100, 200, 255))
+            showNotification(string.format("🏃 WalkSpeed set to: %s", tostring(speed)), Color3.fromRGB(100, 200, 255))
         end)
     end},
     
@@ -715,7 +800,7 @@ local commandsList = {
         getNumberInput("Set Jump Power:", 50, 50, 999999, "Power", function(power)
             activeStates.jumppower = power
             humanoid.JumpPower = power
-            showNotification("🦘 Jump Power set to: " .. power, Color3.fromRGB(255, 150, 100))
+            showNotification(string.format("🦘 Jump Power set to: %s", tostring(power)), Color3.fromRGB(255, 150, 100))
         end)
     end}
 }
@@ -743,7 +828,7 @@ for i, cmd in ipairs(commandsList) do
     end)
 end
 
--- Sidebar
+-- Sidebar (Original)
 local sidebar = Instance.new("Frame")
 sidebar.Size = UDim2.new(0, 46, 1, -50)
 sidebar.Position = UDim2.new(0, 8, 0, 46)
@@ -798,7 +883,7 @@ for i, item in ipairs(sidebarItems) do
     btn.MouseButton1Click:Connect(function()
         switchPage(item.name)
         for _, b in ipairs(sidebar:GetDescendants()) do
-            if b:IsA("TextButton") and b ~= btn then
+            if b:IsA("TextButton") then
                 b.TextColor3 = Color3.fromRGB(140, 150, 170)
             end
         end
@@ -806,7 +891,7 @@ for i, item in ipairs(sidebarItems) do
     end)
 end
 
--- Additional pages
+-- Additional pages (simplified)
 for _, name in ipairs({"Players", "Admins", "Cmds", "Logs", "Settings"}) do
     local page = Instance.new("Frame")
     page.Size = UDim2.new(1, 0, 1, 0)
@@ -862,16 +947,18 @@ openDetector.MouseButton1Click:Connect(function()
     end
 end)
 
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("✅ Admin Panel Loaded Successfully!")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("📌 Press F2 to toggle panel")
 print("📱 Tap top-left on mobile")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("✨ COMMANDS:")
-print("  🕊️ FLY - Enter speed (shows in notification)")
+print("✨ CONTROLS:")
+print("  🕊️ FLY - WASD + Space/Ctrl (PC)")
+print("  🕊️ FLY - On-screen buttons (Mobile)")
 print("  👻 INVISIBLE - Become invisible")
-print("  👤 VISIBLE - Become visible") 
+print("  👤 VISIBLE - Become visible")
 print("  🛡️ GODMODE - Become immortal")
-print("  🏃 WALKSPEED - Set speed (shows in notification)")
-print("  🦘 JUMP POWER - Set jump (shows in notification)")
+print("  🏃 WALKSPEED - Set any speed")
+print("  🦘 JUMP POWER - Set any jump")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
