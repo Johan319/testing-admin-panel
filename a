@@ -1,5 +1,7 @@
---// Compact & Beautiful Client-Side Admin Panel - Fully Functional Commands
--- Press F2 to toggle (PC) | Tap top-left corner on mobile
+--// ULTIMATE ADMIN PANEL - FULL SCRIPT
+--// Matches image layout: Players table with AVATAR | USERNAME | STATUS | ROLE | LOCATION | ACTIONS
+--// Ban → ESP | Message → Spectate
+--// Press F2 to toggle | Mobile: tap top-left corner
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -7,6 +9,8 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ContextActionService = game:GetService("ContextActionService")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -14,33 +18,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Character tracking for respawn
-player.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    humanoid = character:WaitForChild("Humanoid")
-    rootPart = character:WaitForChild("HumanoidRootPart")
-    
-    task.wait(0.5)
-    
-    -- Re-apply states on respawn
-    if activeStates.godmode then
-        enableGodmode()
-    end
-    if activeStates.invisible then
-        setInvisible(true)
-    end
-    if activeStates.fly then
-        enableFly(activeStates.flySpeed)
-    end
-    if activeStates.walkspeed then
-        humanoid.WalkSpeed = activeStates.walkspeed
-    end
-    if activeStates.jumppower then
-        humanoid.JumpPower = activeStates.jumppower
-    end
-end)
-
--- Active states tracking
+-- ==================== ACTIVE STATES ====================
 local activeStates = {
     fly = false,
     invisible = false,
@@ -50,283 +28,191 @@ local activeStates = {
     jumppower = 50
 }
 
--- Fly variables
+-- ==================== ESP SYSTEM (replaces BAN) ====================
+local espEnabled = false
+local espObjects = {}
+local espConnections = {}
+
+local function getESPColor(targetPlayer)
+    if targetPlayer.Team and player.Team and targetPlayer.Team == player.Team then
+        return Color3.fromRGB(0, 255, 100)
+    end
+    return Color3.fromRGB(255, 50, 50)
+end
+
+local function updateDistanceLabel(targetPlayer, label)
+    if not espEnabled or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    local dist = (rootPart.Position - targetPlayer.Character.HumanoidRootPart.Position).Magnitude
+    label.Text = string.format("%.0f studs", dist)
+end
+
+local function createESP(targetPlayer)
+    if not targetPlayer.Character or targetPlayer == player then return end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.Adornee = targetPlayer.Character
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0.2
+    highlight.FillColor = getESPColor(targetPlayer)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.Parent = targetPlayer.Character
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_NameTag"
+    billboard.Size = UDim2.new(0, 220, 0, 50)
+    billboard.Adornee = targetPlayer.Character:FindFirstChild("Head") or targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = targetPlayer.Character
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.6, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = targetPlayer.Name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.3
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.Parent = billboard
+    
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.6, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text = ""
+    distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextSize = 10
+    distLabel.Parent = billboard
+    
+    espObjects[targetPlayer] = {highlight = highlight, billboard = billboard}
+    
+    local conn = RunService.Heartbeat:Connect(function()
+        if espEnabled and espObjects[targetPlayer] and targetPlayer.Character then
+            updateDistanceLabel(targetPlayer, distLabel)
+        end
+    end)
+    table.insert(espConnections, conn)
+end
+
+local function removeESP(targetPlayer)
+    local data = espObjects[targetPlayer]
+    if data then
+        if data.highlight then data.highlight:Destroy() end
+        if data.billboard then data.billboard:Destroy() end
+        espObjects[targetPlayer] = nil
+    end
+end
+
+local function clearAllESP()
+    for plr, _ in pairs(espObjects) do
+        removeESP(plr)
+    end
+    for _, conn in ipairs(espConnections) do
+        conn:Disconnect()
+    end
+    espConnections = {}
+end
+
+local function toggleESP()
+    espEnabled = not espEnabled
+    
+    if espEnabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player then createESP(plr) end
+        end
+        
+        local addedConn = Players.PlayerAdded:Connect(function(plr)
+            if espEnabled and plr ~= player then createESP(plr) end
+        end)
+        local removedConn = Players.PlayerRemoving:Connect(removeESP)
+        table.insert(espConnections, addedConn)
+        table.insert(espConnections, removedConn)
+        
+        showNotification("👁️ ESP ENABLED - Players highlighted", Color3.fromRGB(0, 200, 255))
+    else
+        clearAllESP()
+        showNotification("👁️ ESP DISABLED", Color3.fromRGB(200, 80, 80))
+    end
+end
+
+-- ==================== SPECTATE SYSTEM (replaces MESSAGE) ====================
+local spectating = false
+local currentTarget = nil
+local camera = workspace.CurrentCamera
+local spectateConnection = nil
+
+local function stopSpectate()
+    if spectating then
+        spectating = false
+        camera.CameraSubject = character:FindFirstChild("Humanoid")
+        camera.CameraType = Enum.CameraType.Custom
+        
+        if currentTarget and currentTarget.Character then
+            local glow = currentTarget.Character:FindFirstChild("SpectateGlow")
+            if glow then glow:Destroy() end
+        end
+        
+        currentTarget = nil
+        if spectateConnection then spectateConnection:Disconnect() end
+        spectateConnection = nil
+        
+        showNotification("🔴 Stopped spectating", Color3.fromRGB(255, 100, 100))
+    end
+end
+
+local function startSpectate(targetPlayer)
+    if targetPlayer == player then
+        showNotification("❌ Cannot spectate yourself", Color3.fromRGB(255, 80, 80))
+        return
+    end
+    
+    if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        showNotification("⚠️ Player has no character", Color3.fromRGB(255, 180, 50))
+        return
+    end
+    
+    stopSpectate()
+    spectating = true
+    currentTarget = targetPlayer
+    
+    local glow = Instance.new("Highlight")
+    glow.Name = "SpectateGlow"
+    glow.Adornee = targetPlayer.Character
+    glow.FillColor = Color3.fromRGB(255, 200, 0)
+    glow.OutlineColor = Color3.fromRGB(255, 100, 0)
+    glow.FillTransparency = 0.4
+    glow.Parent = targetPlayer.Character
+    
+    camera.CameraSubject = targetPlayer.Character:FindFirstChild("Humanoid")
+    camera.CameraType = Enum.CameraType.Attach
+    
+    showNotification(string.format("🎥 Spectating: %s", targetPlayer.Name), Color3.fromRGB(100, 200, 255))
+    
+    spectateConnection = RunService.Heartbeat:Connect(function()
+        if not spectating or not currentTarget then
+            stopSpectate()
+            return
+        end
+        if not currentTarget.Parent or not currentTarget.Character or not currentTarget.Character:FindFirstChild("HumanoidRootPart") then
+            showNotification("Target left or died", Color3.fromRGB(255, 150, 50))
+            stopSpectate()
+        end
+    end)
+end
+
+-- ==================== FLY SYSTEM ====================
 local flying = false
 local bodyVelocity = nil
 local bodyGyro = nil
 local flyConnection = nil
-local currentMoveVector = Vector3.new()
 local verticalVelocity = nil
+local moveDirection = Vector3.new()
 
--- Screen GUI Setup
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BeautifulAdminPanel"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
-
--- Saved position data
-local savedData = {
-    minimizedBarX = 0,
-    minimizedBarY = -60,
-    minimizedBarScale = 0.5
-}
-
--- Load saved position
-local function loadSavedPosition()
-    local success, data = pcall(function()
-        return player:GetAttribute("AdminPanel_MinimizedPos")
-    end)
-    
-    if success and data then
-        local posData = data
-        if type(posData) == "table" then
-            savedData.minimizedBarX = posData.X or 0
-            savedData.minimizedBarY = posData.Y or -60
-            savedData.minimizedBarScale = posData.Scale or 0.5
-        end
-    end
-end
-
--- Save current position
-local function savePosition()
-    local posData = {
-        X = savedData.minimizedBarX,
-        Y = savedData.minimizedBarY,
-        Scale = savedData.minimizedBarScale
-    }
-    player:SetAttribute("AdminPanel_MinimizedPos", posData)
-end
-
-loadSavedPosition()
-
--- Main Frame
-local main = Instance.new("Frame")
-main.Name = "MainFrame"
-main.Size = UDim2.new(0, 760, 0, 350)
-main.Position = UDim2.new(0.5, 0, 0.5, 0)
-main.AnchorPoint = Vector2.new(0.5, 0.5)
-main.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
-main.BorderSizePixel = 0
-main.Visible = false
-main.Parent = screenGui
-
-Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
-
-local aspectRatio = Instance.new("UIAspectRatioConstraint")
-aspectRatio.AspectRatio = 560 / 340
-aspectRatio.Parent = main
-
-Instance.new("UIStroke", main).Color = Color3.fromRGB(40, 40, 52)
-
--- Title Bar
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 40)
-titleBar.BackgroundColor3 = Color3.fromRGB(20, 20, 27)
-titleBar.Parent = main
-Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 14)
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
-titleLabel.Position = UDim2.new(0, 14, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Admin Panel"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 16
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = titleBar
-
-local greeting = Instance.new("TextLabel")
-greeting.Size = UDim2.new(0.16, 0, 1, 0)
-greeting.Position = UDim2.new(0.085, 0, 0, 38)
-greeting.BackgroundTransparency = 1
-greeting.Text = "Hello, " .. player.Name .. "!"
-greeting.TextColor3 = Color3.fromRGB(170, 180, 200)
-greeting.Font = Enum.Font.Gotham
-greeting.TextSize = 12
-greeting.TextXAlignment = Enum.TextXAlignment.Right
-greeting.Parent = titleBar
-
--- Minimize Button
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Size = UDim2.new(0, 32, 0, 32)
-minimizeBtn.Position = UDim2.new(1, -74, 0, 4)
-minimizeBtn.BackgroundTransparency = 1
-minimizeBtn.Text = "–"
-minimizeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-minimizeBtn.Font = Enum.Font.GothamBold
-minimizeBtn.TextSize = 20
-minimizeBtn.Parent = titleBar
-
--- Close Button
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 32, 0, 32)
-closeBtn.Position = UDim2.new(1, -38, 0, 4)
-closeBtn.BackgroundTransparency = 1
-closeBtn.Text = "x"
-closeBtn.TextColor3 = Color3.fromRGB(255, 90, 90)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
-closeBtn.Parent = titleBar
-
--- Minimized Bar
-local minimizedBar = Instance.new("Frame")
-minimizedBar.Name = "MinimizedBar"
-minimizedBar.Size = UDim2.new(0, 220, 0, 40)
-minimizedBar.Position = UDim2.new(savedData.minimizedBarScale, savedData.minimizedBarX, 1, savedData.minimizedBarY)
-minimizedBar.AnchorPoint = Vector2.new(0.5, 1)
-minimizedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 27)
-minimizedBar.BackgroundTransparency = 0.95
-minimizedBar.Visible = false
-minimizedBar.Parent = screenGui
-
-Instance.new("UICorner", minimizedBar).CornerRadius = UDim.new(0, 10)
-Instance.new("UIStroke", minimizedBar).Color = Color3.fromRGB(40, 40, 52)
-
-local minimizedTitle = Instance.new("TextLabel")
-minimizedTitle.Size = UDim2.new(0.7, 0, 1, 0)
-minimizedTitle.Position = UDim2.new(0, 12, 0, 0)
-minimizedTitle.BackgroundTransparency = 1
-minimizedTitle.Text = "Admin Panel (Minimized)"
-minimizedTitle.TextColor3 = Color3.fromRGB(200, 200, 220)
-minimizedTitle.Font = Enum.Font.Gotham
-minimizedTitle.TextSize = 12
-minimizedTitle.TextXAlignment = Enum.TextXAlignment.Left
-minimizedTitle.Parent = minimizedBar
-
-local restoreBtn = Instance.new("TextButton")
-restoreBtn.Size = UDim2.new(0, 26, 0, 26)
-restoreBtn.AnchorPoint = Vector2.new(1, 0.5)
-restoreBtn.Position = UDim2.new(1, -8, 0.5, 0)
-restoreBtn.BackgroundTransparency = 1
-restoreBtn.Text = "+"
-restoreBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
-restoreBtn.Font = Enum.Font.GothamBold
-restoreBtn.TextSize = 18
-restoreBtn.Parent = minimizedBar
-
--- Make minimized bar draggable
-local minimizedBarDragging = false
-local minimizedBarDragInput
-local minimizedBarDragStart
-local minimizedBarStartPos
-
-minimizedBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        
-        if input.Target and input.Target:IsDescendantOf(restoreBtn) then
-            return
-        end
-        
-        minimizedBarDragging = true
-        minimizedBarDragStart = input.Position
-        minimizedBarStartPos = minimizedBar.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                minimizedBarDragging = false
-                savedData.minimizedBarX = minimizedBar.Position.X.Offset
-                savedData.minimizedBarY = minimizedBar.Position.Y.Offset
-                savedData.minimizedBarScale = minimizedBar.Position.X.Scale
-                savePosition()
-            end
-        end)
-    end
-end)
-
-minimizedBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        minimizedBarDragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == minimizedBarDragInput and minimizedBarDragging then
-        local delta = input.Position - minimizedBarDragStart
-        local newX = minimizedBarStartPos.X.Offset + delta.X
-        local newY = minimizedBarStartPos.Y.Offset + delta.Y
-        local newScale = minimizedBarStartPos.X.Scale
-        
-        minimizedBar.Position = UDim2.new(newScale, newX, minimizedBarStartPos.Y.Scale, newY)
-        savedData.minimizedBarX = newX
-        savedData.minimizedBarY = newY
-        savedData.minimizedBarScale = newScale
-    end
-end)
-
--- Minimize/Restore functionality
-minimizeBtn.MouseButton1Click:Connect(function()
-    main.Visible = false
-    minimizedBar.Visible = true
-    TweenService:Create(minimizedBar, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Position = UDim2.new(savedData.minimizedBarScale, savedData.minimizedBarX, 1, savedData.minimizedBarY)
-    }):Play()
-end)
-
-restoreBtn.MouseButton1Click:Connect(function()
-    minimizedBar.Visible = false
-    main.Visible = true
-    TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, 0, 0.5, 0)
-    }):Play()
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-    main.Visible = false
-    if minimizedBar.Visible then
-        minimizedBar.Visible = false
-    end
-end)
-
--- DRAG FUNCTIONALITY FOR MAIN PANEL
-local dragging = false
-local dragInput
-local dragStart
-local startPos
-
-local function updateInput(input)
-    if dragging then
-        local delta = input.Position - dragStart
-        main.Position = UDim2.new(
-            startPos.X.Scale, 
-            startPos.X.Offset + delta.X, 
-            startPos.Y.Scale, 
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end
-
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = main.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-titleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateInput(input)
-    end
-end)
-
--- ====================== STABLE FLY SYSTEM (NO SPINNING) ======================
 local function startFly(speed)
     if not character or not rootPart then return end
     
@@ -334,76 +220,49 @@ local function startFly(speed)
     activeStates.fly = true
     activeStates.flySpeed = speed or 50
     
-    -- Store original properties
-    local originalGravity = Workspace.Gravity
-    
-    -- Create BodyVelocity for movement (keeps you stable)
     bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.MaxForce = Vector3.new(1, 0, 1) * 100000  -- Only horizontal movement
+    bodyVelocity.MaxForce = Vector3.new(1, 0, 1) * 100000
     bodyVelocity.Velocity = Vector3.new(0, 0, 0)
     bodyVelocity.Parent = rootPart
     
-    -- Create BodyGyro to prevent spinning (keeps you facing forward)
     bodyGyro = Instance.new("BodyGyro")
     bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
     bodyGyro.CFrame = rootPart.CFrame
     bodyGyro.Parent = rootPart
     
-    -- Disable platform stand to allow normal animations but still control
-    if humanoid then
-        humanoid.AutoRotate = false
-        humanoid.PlatformStand = true
-    end
-    
-    -- Movement tracking
-    local moveDirection = Vector3.new()
-    
-    -- Create a separate BodyVelocity for vertical movement
     verticalVelocity = Instance.new("BodyVelocity")
     verticalVelocity.MaxForce = Vector3.new(0, 100000, 0)
     verticalVelocity.Velocity = Vector3.new(0, 0, 0)
     verticalVelocity.Parent = rootPart
     
+    if humanoid then
+        humanoid.AutoRotate = false
+        humanoid.PlatformStand = true
+    end
+    
     local function updateMovement()
         if not flying or not bodyVelocity then return end
         
         local currentSpeed = activeStates.flySpeed
-        local camera = Workspace.CurrentCamera
-        local cameraCFrame = camera.CFrame
+        local cameraCFrame = workspace.CurrentCamera.CFrame
         
         local forward = cameraCFrame.LookVector * Vector3.new(1, 0, 1)
         local right = cameraCFrame.RightVector * Vector3.new(1, 0, 1)
-        
         forward = forward.Unit
         right = right.Unit
         
         local horizontalMove = Vector3.new()
         local verticalMove = 0
         
-        -- PC Controls
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            horizontalMove = horizontalMove + forward
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            horizontalMove = horizontalMove - forward
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            horizontalMove = horizontalMove - right
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            horizontalMove = horizontalMove + right
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            verticalMove = verticalMove + 1
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            verticalMove = verticalMove - 1
-        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then horizontalMove = horizontalMove + forward end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then horizontalMove = horizontalMove - forward end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then horizontalMove = horizontalMove - right end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then horizontalMove = horizontalMove + right end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then verticalMove = 1 end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then verticalMove = -1 end
         
-        -- Add mobile movement if any
         horizontalMove = horizontalMove + moveDirection
         
-        -- Apply movement
         if horizontalMove.Magnitude > 0 then
             horizontalMove = horizontalMove.Unit * currentSpeed
         end
@@ -411,89 +270,16 @@ local function startFly(speed)
         if bodyVelocity then
             bodyVelocity.Velocity = Vector3.new(horizontalMove.X, 0, horizontalMove.Z)
         end
-        
         if verticalVelocity then
             verticalVelocity.Velocity = Vector3.new(0, verticalMove * currentSpeed, 0)
         end
-        
-        -- Keep character upright and prevent spinning
         if bodyGyro and rootPart then
-            local currentCF = rootPart.CFrame
-            local targetCF = CFrame.new(currentCF.Position, currentCF.Position + cameraCFrame.LookVector)
-            bodyGyro.CFrame = targetCF
+            bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + workspace.CurrentCamera.CFrame.LookVector)
         end
     end
     
-    -- Handle mobile touch movement
-    local function handleMobileAction(actionName, inputState, inputObject)
-        if not flying then return Enum.ContextActionResult.Pass end
-        
-        local camera = Workspace.CurrentCamera
-        local forward = camera.CFrame.LookVector * Vector3.new(1, 0, 1)
-        local right = camera.CFrame.RightVector * Vector3.new(1, 0, 1)
-        
-        forward = forward.Unit
-        right = right.Unit
-        
-        if actionName == "FlyForward" then
-            if inputState == Enum.UserInputState.Begin then
-                moveDirection = moveDirection + forward
-            elseif inputState == Enum.UserInputState.End then
-                moveDirection = moveDirection - forward
-            end
-        elseif actionName == "FlyBack" then
-            if inputState == Enum.UserInputState.Begin then
-                moveDirection = moveDirection - forward
-            elseif inputState == Enum.UserInputState.End then
-                moveDirection = moveDirection + forward
-            end
-        elseif actionName == "FlyLeft" then
-            if inputState == Enum.UserInputState.Begin then
-                moveDirection = moveDirection - right
-            elseif inputState == Enum.UserInputState.End then
-                moveDirection = moveDirection + right
-            end
-        elseif actionName == "FlyRight" then
-            if inputState == Enum.UserInputState.Begin then
-                moveDirection = moveDirection + right
-            elseif inputState == Enum.UserInputState.End then
-                moveDirection = moveDirection - right
-            end
-        elseif actionName == "FlyUp" then
-            if inputState == Enum.UserInputState.Begin then
-                if verticalVelocity then
-                    verticalVelocity.Velocity = Vector3.new(0, activeStates.flySpeed, 0)
-                end
-            elseif inputState == Enum.UserInputState.End then
-                if verticalVelocity then
-                    verticalVelocity.Velocity = Vector3.new(0, 0, 0)
-                end
-            end
-        elseif actionName == "FlyDown" then
-            if inputState == Enum.UserInputState.Begin then
-                if verticalVelocity then
-                    verticalVelocity.Velocity = Vector3.new(0, -activeStates.flySpeed, 0)
-                end
-            elseif inputState == Enum.UserInputState.End then
-                if verticalVelocity then
-                    verticalVelocity.Velocity = Vector3.new(0, 0, 0)
-                end
-            end
-        end
-        
-        return Enum.ContextActionResult.Sink
-    end
-    
-    -- Bind mobile controls
-    ContextActionService:BindActionAtPriority("FlyForward", handleMobileAction, false, 1, Enum.KeyCode.Thumbstick1, Enum.UserInputType.Touch)
-    ContextActionService:BindActionAtPriority("FlyBack", handleMobileAction, false, 1, Enum.KeyCode.Thumbstick2, Enum.UserInputType.Touch)
-    ContextActionService:BindActionAtPriority("FlyLeft", handleMobileAction, false, 1, Enum.KeyCode.Thumbstick3, Enum.UserInputType.Touch)
-    ContextActionService:BindActionAtPriority("FlyRight", handleMobileAction, false, 1, Enum.KeyCode.Thumbstick4, Enum.UserInputType.Touch)
-    ContextActionService:BindActionAtPriority("FlyUp", handleMobileAction, false, 1, Enum.KeyCode.ButtonR1, Enum.UserInputType.Touch)
-    ContextActionService:BindActionAtPriority("FlyDown", handleMobileAction, false, 1, Enum.KeyCode.ButtonL1, Enum.UserInputType.Touch)
-    
-    -- Start update loop
     flyConnection = RunService.Heartbeat:Connect(updateMovement)
+    showNotification(string.format("✈️ Fly Mode ON (Speed: %s)", tostring(speed or 50)), Color3.fromRGB(0, 200, 100))
 end
 
 local function stopFly()
@@ -509,116 +295,111 @@ local function stopFly()
     bodyGyro = nil
     verticalVelocity = nil
     flyConnection = nil
-    currentMoveVector = Vector3.new()
+    moveDirection = Vector3.new()
     
     if humanoid then
         humanoid.AutoRotate = true
         humanoid.PlatformStand = false
     end
     
-    -- Unbind mobile controls
-    ContextActionService:UnbindAction("FlyForward")
-    ContextActionService:UnbindAction("FlyBack")
-    ContextActionService:UnbindAction("FlyLeft")
-    ContextActionService:UnbindAction("FlyRight")
-    ContextActionService:UnbindAction("FlyUp")
-    ContextActionService:UnbindAction("FlyDown")
+    showNotification("🛑 Fly Mode OFF", Color3.fromRGB(200, 50, 50))
 end
 
-local function enableFly(speed)
+local function toggleFly(speed)
     if flying then
         stopFly()
-        showNotification("🛑 Fly Mode: OFF", Color3.fromRGB(200, 50, 50))
     else
         startFly(speed or 50)
-        showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed or 50)), Color3.fromRGB(0, 200, 100))
     end
 end
 
--- ====================== END STABLE FLY SYSTEM ======================
+-- ==================== GODMODE ====================
+local godmodeActive = false
+local godmodeConnections = {}
 
--- INVISIBLE FUNCTION
-local function setInvisible(state)
-    activeStates.invisible = state
+local function toggleGodmode()
+    godmodeActive = not godmodeActive
+    
+    if godmodeActive then
+        humanoid.BreakJointsOnDeath = false
+        
+        local healthConn = humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+            if godmodeActive and humanoid.Health <= 0 then
+                humanoid.Health = humanoid.MaxHealth
+            end
+        end)
+        local diedConn = humanoid.Died:Connect(function()
+            if godmodeActive then
+                task.wait()
+                humanoid.Health = humanoid.MaxHealth
+            end
+        end)
+        
+        godmodeConnections = {healthConn, diedConn}
+        showNotification("🛡️ GODMODE ACTIVATED", Color3.fromRGB(255, 200, 50))
+    else
+        for _, conn in ipairs(godmodeConnections) do
+            conn:Disconnect()
+        end
+        godmodeConnections = {}
+        humanoid.BreakJointsOnDeath = true
+        showNotification("⚠️ GODMODE DEACTIVATED", Color3.fromRGB(255, 100, 50))
+    end
+end
+
+-- ==================== INVISIBLE ====================
+local invisibleActive = false
+
+local function toggleInvisible()
+    invisibleActive = not invisibleActive
     
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Transparency = state and 1 or 0
+            part.Transparency = invisibleActive and 1 or 0
         elseif part:IsA("Decal") then
-            part.Transparency = state and 1 or 0
+            part.Transparency = invisibleActive and 1 or 0
         end
     end
     
-    if state then
-        showNotification("👻 Invisible: ON", Color3.fromRGB(150, 100, 255))
+    if invisibleActive then
+        showNotification("👻 INVISIBLE ON", Color3.fromRGB(150, 100, 255))
     else
-        showNotification("👤 Invisible: OFF", Color3.fromRGB(100, 150, 255))
+        showNotification("👤 INVISIBLE OFF", Color3.fromRGB(100, 150, 255))
     end
 end
 
--- GODMODE FUNCTION
-local function enableGodmode()
-    if not activeStates.godmode then
-        activeStates.godmode = true
-        
-        local function onDied()
-            if activeStates.godmode then
-                humanoid.Health = humanoid.MaxHealth
-            end
-        end
-        
-        local function onHealthChanged(health)
-            if activeStates.godmode and health <= 0 then
-                humanoid.Health = humanoid.MaxHealth
-            end
-        end
-        
-        humanoid.BreakJointsOnDeath = false
-        humanoid:GetPropertyChangedSignal("Health"):Connect(onHealthChanged)
-        humanoid.Died:Connect(onDied)
-        
-        showNotification("🛡️ Godmode: ACTIVATED (Immortal)", Color3.fromRGB(255, 200, 50))
-    else
-        activeStates.godmode = false
-        humanoid.BreakJointsOnDeath = true
-        showNotification("⚠️ Godmode: DEACTIVATED", Color3.fromRGB(255, 100, 50))
-    end
-end
-
--- Notification function
+-- ==================== NOTIFICATION SYSTEM ====================
 local function showNotification(text, color)
     local notif = Instance.new("TextLabel")
-    notif.Size = UDim2.new(0, 300, 0, 42)
-    notif.Position = UDim2.new(0.5, -150, 0.75, 0)
-    notif.BackgroundColor3 = color or Color3.fromRGB(30, 30, 40)
+    notif.Size = UDim2.new(0, 340, 0, 44)
+    notif.Position = UDim2.new(0.5, -170, 0.85, 0)
+    notif.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
     notif.TextColor3 = Color3.fromRGB(255, 255, 255)
     notif.Text = text
     notif.Font = Enum.Font.GothamBold
-    notif.TextSize = 14
-    notif.BackgroundTransparency = 0.15
-    notif.Parent = screenGui
+    notif.TextSize = 13
+    notif.Parent = playerGui
+    Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 12)
+    Instance.new("UIStroke", notif).Color = color or Color3.fromRGB(80, 150, 255)
     
-    Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 8)
-    
-    game:GetService("Debris"):AddItem(notif, 2)
-    
+    TweenService:Create(notif, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
+    task.wait(2.5)
     TweenService:Create(notif, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-    task.wait(2)
+    task.wait(0.3)
     notif:Destroy()
 end
 
--- Speed Input Dialog
+-- ==================== NUMBER INPUT DIALOG ====================
 local function getNumberInput(title, defaultValue, minValue, maxValue, unit, callback)
     local dialog = Instance.new("Frame")
     dialog.Size = UDim2.new(0, 350, 0, 170)
     dialog.Position = UDim2.new(0.5, -175, 0.5, -85)
     dialog.AnchorPoint = Vector2.new(0.5, 0.5)
-    dialog.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    dialog.BackgroundTransparency = 0.05
-    dialog.Parent = screenGui
-    
+    dialog.BackgroundColor3 = Color3.fromRGB(25, 27, 38)
+    dialog.BorderSizePixel = 0
+    dialog.Parent = playerGui
     Instance.new("UICorner", dialog).CornerRadius = UDim.new(0, 12)
-    Instance.new("UIStroke", dialog).Color = Color3.fromRGB(50, 50, 65)
+    Instance.new("UIStroke", dialog).Color = Color3.fromRGB(60, 70, 100)
     
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Size = UDim2.new(1, 0, 0, 45)
@@ -632,7 +413,7 @@ local function getNumberInput(title, defaultValue, minValue, maxValue, unit, cal
     local inputBox = Instance.new("TextBox")
     inputBox.Size = UDim2.new(0.7, 0, 0, 45)
     inputBox.Position = UDim2.new(0.5, -115, 0.5, -22)
-    inputBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    inputBox.BackgroundColor3 = Color3.fromRGB(35, 38, 50)
     inputBox.Text = tostring(defaultValue)
     inputBox.PlaceholderText = "Enter number..."
     inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -680,9 +461,7 @@ local function getNumberInput(title, defaultValue, minValue, maxValue, unit, cal
             if minValue and maxValue then
                 num = math.clamp(num, minValue, maxValue)
             end
-            if callback then
-                callback(num)
-            end
+            if callback then callback(num) end
         end
         dialog:Destroy()
     end
@@ -692,337 +471,476 @@ local function getNumberInput(title, defaultValue, minValue, maxValue, unit, cal
     inputBox.FocusLost:Connect(function(enterPressed) if enterPressed then confirm() end end)
 end
 
--- ====================== MAIN CONTENT ======================
+-- ==================== UI CONSTRUCTION ====================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AdminPanel_Full"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
 
--- Main Content Area
-local mainContent = Instance.new("Frame")
-mainContent.Size = UDim2.new(0.58, 0, 0.80, -55)
-mainContent.Position = UDim2.new(0.12, 0, 0, 75)
-mainContent.BackgroundTransparency = 1
-mainContent.Parent = main
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 1000, 0, 600)
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 25)
+mainFrame.BackgroundTransparency = 0.05
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 16)
+Instance.new("UIStroke", mainFrame).Color = Color3.fromRGB(50, 60, 85)
 
-local pages = {}
-local homePage = Instance.new("Frame")
-homePage.Size = UDim2.new(1, 0, 1, 0)
-homePage.BackgroundTransparency = 1
-homePage.Visible = true
-homePage.Parent = mainContent
-pages.Home = homePage
+-- Header
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 55)
+header.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+header.BackgroundTransparency = 0.3
+header.Parent = mainFrame
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, 16)
 
--- Improved Compact Stat Card Function
-local function createStatCard(posX, posY, emoji, titleText, initialValue, emojiColor)
-    local card = Instance.new("Frame")
-    card.Size = UDim2.new(0.48, 0, 0.47, 0)
-    card.Position = UDim2.new(posX, 0, posY, 0)
-    card.BackgroundColor3 = Color3.fromRGB(24, 24, 33)
-    card.Parent = homePage
+local headerTitle = Instance.new("TextLabel")
+headerTitle.Size = UDim2.new(0.3, 0, 1, 0)
+headerTitle.Position = UDim2.new(0, 20, 0, 0)
+headerTitle.BackgroundTransparency = 1
+headerTitle.Text = "⚡ ADMIN PANEL"
+headerTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+headerTitle.Font = Enum.Font.GothamBold
+headerTitle.TextSize = 20
+headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+headerTitle.Parent = header
+
+local adminName = Instance.new("TextLabel")
+adminName.Size = UDim2.new(0, 150, 0, 30)
+adminName.Position = UDim2.new(0.5, -75, 0.5, -15)
+adminName.BackgroundColor3 = Color3.fromRGB(45, 50, 75)
+adminName.Text = "👑 " .. player.Name
+adminName.TextColor3 = Color3.fromRGB(255, 210, 100)
+adminName.Font = Enum.Font.GothamBold
+adminName.TextSize = 12
+adminName.Parent = header
+Instance.new("UICorner", adminName).CornerRadius = UDim.new(0, 15)
+
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 36, 0, 36)
+minimizeBtn.Position = UDim2.new(1, -86, 0, 9)
+minimizeBtn.BackgroundTransparency = 1
+minimizeBtn.Text = "─"
+minimizeBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 22
+minimizeBtn.Parent = header
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 36, 0, 36)
+closeBtn.Position = UDim2.new(1, -44, 0, 9)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255, 90, 90)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 18
+closeBtn.Parent = header
+
+-- Search Bar
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(0.35, 0, 0, 38)
+searchBox.Position = UDim2.new(0.02, 0, 0, 65)
+searchBox.BackgroundColor3 = Color3.fromRGB(30, 33, 45)
+searchBox.PlaceholderText = "🔍 Search players..."
+searchBox.Text = ""
+searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchBox.Font = Enum.Font.Gotham
+searchBox.TextSize = 14
+searchBox.Parent = mainFrame
+Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 8)
+
+-- Table Headers
+local headers = {"AVATAR", "USERNAME", "STATUS", "ROLE", "LOCATION", "ACTIONS"}
+local headerY = 115
+local colWidths = {0.09, 0.14, 0.11, 0.11, 0.13, 0.38}
+
+for i, headerText in ipairs(headers) do
+    local xPos = 0.01
+    for j = 1, i-1 do xPos = xPos + colWidths[j] end
     
-    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-
-    local emojiLabel = Instance.new("TextLabel")
-    emojiLabel.Size = UDim2.new(0, 26, 0, 26)
-    emojiLabel.Position = UDim2.new(0, 12, 0, 12)
-    emojiLabel.BackgroundTransparency = 1
-    emojiLabel.Text = emoji
-    emojiLabel.TextSize = 20
-    emojiLabel.TextColor3 = emojiColor
-    emojiLabel.Font = Enum.Font.GothamBold
-    emojiLabel.Parent = card
-
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size = UDim2.new(0.55, 0, 0.25, 0)
-    titleLbl.Position = UDim2.new(0.38, 0, 0.22, 0)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = titleText
-    titleLbl.TextColor3 = Color3.fromRGB(180, 180, 195)
-    titleLbl.Font = Enum.Font.Gotham
-    titleLbl.TextSize = 10
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = card
-
-    local valueLbl = Instance.new("TextLabel")
-    valueLbl.Size = UDim2.new(0.55, 0, 0.48, 0)
-    valueLbl.Position = UDim2.new(0.38, 0, 0.48, 0)
-    valueLbl.BackgroundTransparency = 1
-    valueLbl.Text = initialValue
-    valueLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    valueLbl.Font = Enum.Font.GothamBold
-    valueLbl.TextSize = 17
-    valueLbl.TextXAlignment = Enum.TextXAlignment.Left
-    valueLbl.Name = "ValueLabel"
-    valueLbl.Parent = card
-
-    return valueLbl
+    local h = Instance.new("TextLabel")
+    h.Size = UDim2.new(colWidths[i], 0, 0, 32)
+    h.Position = UDim2.new(xPos, 0, 0, headerY)
+    h.BackgroundColor3 = Color3.fromRGB(35, 38, 52)
+    h.Text = headerText
+    h.TextColor3 = Color3.fromRGB(200, 210, 240)
+    h.Font = Enum.Font.GothamBold
+    h.TextSize = 11
+    h.Parent = mainFrame
+    Instance.new("UICorner", h).CornerRadius = UDim.new(0, 6)
 end
 
--- Create Stat Cards
-local playersValueLabel = createStatCard(0, 0, "👥", "Players", "0", Color3.fromRGB(100, 190, 255))
-local adminsValueLabel   = createStatCard(0.52, 0, "👤", "Admins", "0", Color3.fromRGB(255, 210, 90))
-local uptimeValueLabel   = createStatCard(0, 0.52, "⏱", "Server Uptime", "0m", Color3.fromRGB(100, 230, 150))
-local locationValueLabel = createStatCard(0.52, 0.52, "📍", "Location", "Calabarzon, PH", Color3.fromRGB(120, 225, 140))
+-- Scrolling Player List
+local playerContainer = Instance.new("ScrollingFrame")
+playerContainer.Size = UDim2.new(0.96, 0, 0.58, 0)
+playerContainer.Position = UDim2.new(0.02, 0, 0, 155)
+playerContainer.BackgroundTransparency = 1
+playerContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+playerContainer.ScrollBarThickness = 6
+playerContainer.Parent = mainFrame
 
--- Live Updates
-local serverStartTime = tick()
+local playerLayout = Instance.new("UIListLayout")
+playerLayout.Padding = UDim.new(0, 6)
+playerLayout.SortOrder = Enum.SortOrder.Name
+playerLayout.Parent = playerContainer
 
-RunService.Heartbeat:Connect(function()
-    if not main.Visible then return end
+-- Admins Footer
+local footer = Instance.new("Frame")
+footer.Size = UDim2.new(0.96, 0, 0, 48)
+footer.Position = UDim2.new(0.02, 0, 1, -54)
+footer.BackgroundColor3 = Color3.fromRGB(28, 30, 42)
+footer.Parent = mainFrame
+Instance.new("UICorner", footer).CornerRadius = UDim.new(0, 8)
 
-    playersValueLabel.Text = tostring(#Players:GetPlayers())
+local cmdsBtn = Instance.new("TextButton")
+cmdsBtn.Size = UDim2.new(0.15, 0, 0.7, 0)
+cmdsBtn.Position = UDim2.new(0.05, 0, 0.15, 0)
+cmdsBtn.BackgroundColor3 = Color3.fromRGB(55, 60, 85)
+cmdsBtn.Text = "📋 Cmds"
+cmdsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+cmdsBtn.Font = Enum.Font.GothamBold
+cmdsBtn.TextSize = 13
+cmdsBtn.Parent = footer
+Instance.new("UICorner", cmdsBtn).CornerRadius = UDim.new(0, 6)
 
-    local adminCount = 0
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr:GetRankInGroup(1234567) >= 100 then
-            adminCount += 1
-        end
-    end
-    adminsValueLabel.Text = tostring(adminCount)
+local logsBtn = Instance.new("TextButton")
+logsBtn.Size = UDim2.new(0.15, 0, 0.7, 0)
+logsBtn.Position = UDim2.new(0.23, 0, 0.15, 0)
+logsBtn.BackgroundColor3 = Color3.fromRGB(55, 60, 85)
+logsBtn.Text = "📜 Logs"
+logsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+logsBtn.Font = Enum.Font.GothamBold
+logsBtn.TextSize = 13
+logsBtn.Parent = footer
+Instance.new("UICorner", logsBtn).CornerRadius = UDim.new(0, 6)
 
-    local uptimeSeconds = tick() - serverStartTime
-    local hours = math.floor(uptimeSeconds / 3600)
-    local minutes = math.floor((uptimeSeconds % 3600) / 60)
-    uptimeValueLabel.Text = (hours > 0 and hours .. "h " .. minutes .. "m") or (minutes .. "m")
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Size = UDim2.new(0.5, 0, 1, 0)
+statsLabel.Position = UDim2.new(0.45, 0, 0, 0)
+statsLabel.BackgroundTransparency = 1
+statsLabel.Text = "👥 0 players online"
+statsLabel.TextColor3 = Color3.fromRGB(150, 160, 190)
+statsLabel.Font = Enum.Font.Gotham
+statsLabel.TextSize = 11
+statsLabel.TextXAlignment = Enum.TextXAlignment.Right
+statsLabel.Parent = footer
+
+cmdsBtn.MouseButton1Click:Connect(function()
+    showNotification("Commands: /fly, /god, /invis, /esp, /walkspeed, /jumppower", Color3.fromRGB(100, 200, 255))
 end)
 
--- Quick Commands Panel (ONLY ON HOME PAGE)
-local quickPanel = Instance.new("Frame")
-quickPanel.Size = UDim2.new(0.27, 0, 1, -50)
-quickPanel.Position = UDim2.new(0.73, 0, 0, 46)
-quickPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
-quickPanel.Parent = main
-Instance.new("UICorner", quickPanel).CornerRadius = UDim.new(0, 10)
+logsBtn.MouseButton1Click:Connect(function()
+    showNotification("Logs: No recent actions", Color3.fromRGB(200, 200, 100))
+end)
 
-local cmdTitle = Instance.new("TextLabel")
-cmdTitle.Size = UDim2.new(1, 0, 0, 26)
-cmdTitle.BackgroundTransparency = 1
-cmdTitle.Text = "⚡ QUICK COMMANDS"
-cmdTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-cmdTitle.Font = Enum.Font.GothamBold
-cmdTitle.TextSize = 13
-cmdTitle.Parent = quickPanel
-
--- Command buttons
-local commandsList = {
-    {text = "🕊️ FLY", color = Color3.fromRGB(100, 180, 255), 
-     action = function()
-        getNumberInput("Set Fly Speed:", 50, 1, 999999, "Speed", function(speed)
-            if flying then
-                stopFly()
-                task.wait(0.1)
-                startFly(speed)
-                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
-            else
-                startFly(speed)
-                showNotification(string.format("✈️ Fly Mode: ON (Speed: %s)", tostring(speed)), Color3.fromRGB(0, 200, 100))
-            end
-        end)
-    end},
-    
-    {text = "👻 INVISIBLE", color = Color3.fromRGB(150, 100, 255), 
-     action = function()
-        setInvisible(true)
-    end},
-    
-    {text = "👤 VISIBLE", color = Color3.fromRGB(100, 200, 150), 
-     action = function()
-        setInvisible(false)
-    end},
-    
-    {text = "🛡️ GODMODE", color = Color3.fromRGB(255, 200, 80), 
-     action = function()
-        enableGodmode()
-    end},
-    
-    {text = "🏃 WALKSPEED", color = Color3.fromRGB(200, 150, 255), 
-     action = function()
-        getNumberInput("Set Walk Speed:", 16, 16, 999999, "Speed", function(speed)
-            activeStates.walkspeed = speed
-            humanoid.WalkSpeed = speed
-            showNotification(string.format("🏃 WalkSpeed set to: %s", tostring(speed)), Color3.fromRGB(100, 200, 255))
-        end)
-    end},
-    
-    {text = "🦘 JUMP POWER", color = Color3.fromRGB(255, 150, 100), 
-     action = function()
-        getNumberInput("Set Jump Power:", 50, 50, 999999, "Power", function(power)
-            activeStates.jumppower = power
-            humanoid.JumpPower = power
-            showNotification(string.format("🦘 Jump Power set to: %s", tostring(power)), Color3.fromRGB(255, 150, 100))
-        end)
-    end}
-}
-
-for i, cmd in ipairs(commandsList) do
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.92, 0, 0, 38)
-    btn.Position = UDim2.new(0.04, 0, 0, 40 + (i-1)*42)
-    btn.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
-    btn.Text = cmd.text
-    btn.TextColor3 = Color3.fromRGB(230, 230, 240)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
-    btn.Parent = quickPanel
-    
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
-    btn.MouseButton1Click:Connect(cmd.action)
-
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(45, 45, 58)}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(32, 32, 42)}):Play()
-    end)
-end
-
--- Sidebar
-local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0, 46, 1, -50)
-sidebar.Position = UDim2.new(0, 8, 0, 46)
-sidebar.BackgroundColor3 = Color3.fromRGB(19, 19, 26)
-sidebar.Parent = main
-Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12)
-
-local sidebarItems = {
-    {icon = "🏠", name = "Home", highlight = Color3.fromRGB(100, 180, 255)},
-    {icon = "👥", name = "Players"},
-    {icon = "👤", name = "Admins"},
-    {icon = "</>", name = "Cmds"},
-    {icon = "📜", name = "Logs"},
-    {icon = "⚙️", name = "Settings"}
-}
-
-local function switchPage(pageName)
-    for _, page in pairs(pages) do 
-        if page then page.Visible = false end 
-    end
-    if pages[pageName] then 
-        pages[pageName].Visible = true 
-    end
-    
-    -- ONLY show quick panel on Home page
-    if pageName == "Home" then
-        quickPanel.Visible = true
+-- ==================== PLAYER ROW CREATION ====================
+local function updateLocationLabel(targetPlayer, label)
+    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local pos = targetPlayer.Character.HumanoidRootPart.Position
+        label.Text = string.format("X:%.0f Z:%.0f", pos.X, pos.Z)
     else
-        quickPanel.Visible = false
+        label.Text = "Loading..."
     end
 end
 
-for i, item in ipairs(sidebarItems) do
-    local btnContainer = Instance.new("Frame")
-    btnContainer.Size = UDim2.new(1, 0, 0, 46)
-    btnContainer.Position = UDim2.new(0, 0, 0, (i-1)*50)
-    btnContainer.BackgroundTransparency = 1
-    btnContainer.Parent = sidebar
-
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundTransparency = 1
-    btn.Text = item.icon
-    btn.TextSize = 22
-    btn.TextColor3 = (item.name == "Home" and item.highlight) or Color3.fromRGB(140, 150, 170)
-    btn.Font = Enum.Font.GothamBold
-    btn.Parent = btnContainer
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 10)
-    label.Position = UDim2.new(0, 0, 0, 34)
-    label.BackgroundTransparency = 1
-    label.Text = item.name
-    label.TextColor3 = Color3.fromRGB(160, 170, 190)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 8
-    label.Parent = btnContainer
-
-    btn.MouseButton1Click:Connect(function()
-        switchPage(item.name)
-        for _, b in ipairs(sidebar:GetDescendants()) do
-            if b:IsA("TextButton") and b ~= btn then
-                b.TextColor3 = Color3.fromRGB(140, 150, 170)
-            end
-        end
-        btn.TextColor3 = item.highlight or Color3.fromRGB(100, 180, 255)
-        
-        -- Make sure quick panel visibility is correct
-        if item.name == "Home" then
-            quickPanel.Visible = true
-        else
-            quickPanel.Visible = false
+local function createPlayerRow(targetPlayer)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 58)
+    row.BackgroundColor3 = Color3.fromRGB(22, 24, 36)
+    row.Parent = playerContainer
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    
+    -- AVATAR (col 1)
+    local avatar = Instance.new("ImageLabel")
+    avatar.Size = UDim2.new(0, 42, 0, 42)
+    avatar.Position = UDim2.new(0.025, 0, 0.5, -21)
+    avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. targetPlayer.UserId .. "&w=100&h=100"
+    avatar.Parent = row
+    Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+    
+    -- USERNAME (col 2)
+    local username = Instance.new("TextLabel")
+    username.Size = UDim2.new(0.13, 0, 0.6, 0)
+    username.Position = UDim2.new(0.125, 0, 0.2, 0)
+    username.BackgroundTransparency = 1
+    username.Text = targetPlayer.Name
+    username.TextColor3 = Color3.fromRGB(255, 255, 255)
+    username.Font = Enum.Font.GothamBold
+    username.TextSize = 13
+    username.TextXAlignment = Enum.TextXAlignment.Left
+    username.Parent = row
+    
+    -- STATUS (col 3)
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(0.1, 0, 0.5, 0)
+    status.Position = UDim2.new(0.26, 0, 0.25, 0)
+    status.BackgroundTransparency = 1
+    local isOnline = targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid")
+    status.Text = isOnline and "🟢 Online" or "⚫ Offline"
+    status.TextColor3 = isOnline and Color3.fromRGB(80, 255, 80) or Color3.fromRGB(150, 150, 150)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 10
+    status.Parent = row
+    
+    -- ROLE (col 4)
+    local role = Instance.new("TextLabel")
+    role.Size = UDim2.new(0.1, 0, 0.5, 0)
+    role.Position = UDim2.new(0.37, 0, 0.25, 0)
+    role.BackgroundTransparency = 1
+    role.Text = "Player"
+    role.TextColor3 = Color3.fromRGB(170, 170, 200)
+    role.Font = Enum.Font.Gotham
+    role.TextSize = 10
+    role.Parent = row
+    
+    -- LOCATION (col 5)
+    local location = Instance.new("TextLabel")
+    location.Size = UDim2.new(0.12, 0, 0.5, 0)
+    location.Position = UDim2.new(0.48, 0, 0.25, 0)
+    location.BackgroundTransparency = 1
+    location.Text = "Updating..."
+    location.TextColor3 = Color3.fromRGB(180, 180, 200)
+    location.Font = Enum.Font.Gotham
+    location.TextSize = 9
+    location.Parent = row
+    
+    -- Location updater
+    task.spawn(function()
+        while row.Parent do
+            updateLocationLabel(targetPlayer, location)
+            task.wait(1.5)
         end
     end)
+    
+    -- ACTIONS (col 6) - 8 buttons
+    local actions = {
+        {text = "👑", tooltip = "Admin", color = Color3.fromRGB(80, 100, 140), action = function()
+            showNotification("Admin panel for " .. targetPlayer.Name, Color3.fromRGB(200, 180, 100))
+        end},
+        {text = "🏝️", tooltip = "Spawn Island", color = Color3.fromRGB(60, 120, 90), action = function()
+            local spawn = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChild("Spawn")
+            if spawn and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                targetPlayer.Character.HumanoidRootPart.CFrame = spawn.CFrame + Vector3.new(0, 3, 0)
+                showNotification("Teleported " .. targetPlayer.Name .. " to spawn", Color3.fromRGB(100, 200, 100))
+            end
+        end},
+        {text = "👁️", tooltip = "ESP", color = Color3.fromRGB(100, 70, 150), action = function()
+            toggleESP()
+        end},
+        {text = "🌀", tooltip = "Teleport to Player", color = Color3.fromRGB(70, 130, 110), action = function()
+            if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                rootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                showNotification("Teleported to " .. targetPlayer.Name, Color3.fromRGB(100, 200, 255))
+            end
+        end},
+        {text = "🎥", tooltip = "Spectate", color = Color3.fromRGB(130, 80, 140), action = function()
+            startSpectate(targetPlayer)
+        end},
+        {text = "⚔️", tooltip = "Battle Arena", color = Color3.fromRGB(140, 70, 80), action = function()
+            showNotification("Battle Arena - Coming Soon", Color3.fromRGB(255, 150, 100))
+        end},
+        {text = "🏛️", tooltip = "Lobby", color = Color3.fromRGB(70, 100, 130), action = function()
+            showNotification("Lobby teleport", Color3.fromRGB(150, 150, 200))
+        end},
+        {text = "🚫", tooltip = "Kick", color = Color3.fromRGB(150, 60, 60), action = function()
+            showNotification("Kicked " .. targetPlayer.Name, Color3.fromRGB(255, 80, 80))
+        end}
+    }
+    
+    local startX = 0.605
+    for i, btnData in ipairs(actions) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.044, 0, 0, 34)
+        btn.Position = UDim2.new(startX + (i-1) * 0.047, 0, 0.5, -17)
+        btn.BackgroundColor3 = btnData.color
+        btn.Text = btnData.text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 15
+        btn.Parent = row
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        
+        -- Tooltip on hover
+        local tooltip = Instance.new("TextLabel")
+        tooltip.Size = UDim2.new(0, 80, 0, 22)
+        tooltip.Position = UDim2.new(0, 5, 1, 5)
+        tooltip.BackgroundColor3 = Color3.fromRGB(20, 22, 35)
+        tooltip.Text = btnData.tooltip
+        tooltip.TextColor3 = Color3.fromRGB(255, 255, 255)
+        tooltip.Font = Enum.Font.Gotham
+        tooltip.TextSize = 9
+        tooltip.Visible = false
+        tooltip.Parent = btn
+        Instance.new("UICorner", tooltip).CornerRadius = UDim.new(0, 4)
+        
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = btnData.color:Lerp(Color3.fromRGB(255, 255, 255), 0.2)}):Play()
+            tooltip.Visible = true
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = btnData.color}):Play()
+            tooltip.Visible = false
+        end)
+        btn.MouseButton1Click:Connect(btnData.action)
+    end
+    
+    return row
 end
 
--- Additional pages (placeholders)
-for _, name in ipairs({"Players", "Admins", "Cmds", "Logs", "Settings"}) do
-    local page = Instance.new("Frame")
-    page.Size = UDim2.new(1, 0, 1, 0)
-    page.BackgroundTransparency = 1
-    page.Visible = false
-    page.Parent = mainContent
+-- Refresh player list
+local function refreshPlayerList(searchText)
+    for _, child in ipairs(playerContainer:GetChildren()) do
+        if child:IsA("Frame") and child ~= playerLayout then
+            child:Destroy()
+        end
+    end
     
-    local placeholder = Instance.new("TextLabel")
-    placeholder.Size = UDim2.new(1, 0, 1, 0)
-    placeholder.BackgroundTransparency = 1
-    placeholder.Text = name .. " Page\n(Coming Soon)"
-    placeholder.TextColor3 = Color3.fromRGB(180, 180, 200)
-    placeholder.Font = Enum.Font.Gotham
-    placeholder.TextSize = 20
-    placeholder.Parent = page
+    local searchLower = searchText and searchText:lower() or ""
+    local playersList = Players:GetPlayers()
+    local count = 0
     
-    pages[name] = page
+    for _, plr in ipairs(playersList) do
+        if searchLower == "" or plr.Name:lower():find(searchLower) then
+            createPlayerRow(plr)
+            count = count + 1
+        end
+    end
+    
+    playerContainer.CanvasSize = UDim2.new(0, 0, 0, count * 64 + 10)
+    statsLabel.Text = "👥 " .. #playersList .. " players online"
 end
 
--- Toggle (F2)
+-- Search functionality
+searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    refreshPlayerList(searchBox.Text)
+end)
+
+-- Live updates
+Players.PlayerAdded:Connect(function() refreshPlayerList(searchBox.Text) end)
+Players.PlayerRemoving:Connect(function() refreshPlayerList(searchBox.Text) end)
+
+-- Character respawn handler
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    humanoid = character:WaitForChild("Humanoid")
+    
+    task.wait(0.5)
+    if godmodeActive then toggleGodmode() end
+    if invisibleActive then toggleInvisible() end
+end)
+
+-- ==================== DRAG SYSTEM ====================
+local dragging = false
+local dragStart, startPos
+
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- ==================== TOGGLE PANEL ====================
+local minimized = false
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.F2 then
-        if main.Visible then
-            main.Visible = false
-            minimizedBar.Visible = true
+        if mainFrame.Visible then
+            mainFrame.Visible = false
         else
-            if minimizedBar.Visible then
-                minimizedBar.Visible = false
-            end
-            main.Visible = true
-            -- Reset to Home page and show quick panel when opening
-            switchPage("Home")
-            quickPanel.Visible = true
+            mainFrame.Visible = true
+            refreshPlayerList("")
         end
     end
 end)
 
--- Mobile tap detector
-local openDetector = Instance.new("TextButton")
-openDetector.Size = UDim2.new(0, 70, 0, 50)
-openDetector.Position = UDim2.new(0, 0, 0, 0)
-openDetector.BackgroundTransparency = 1
-openDetector.Text = ""
-openDetector.Parent = screenGui
-
-openDetector.MouseButton1Click:Connect(function()
-    if main.Visible then
-        main.Visible = false
-        minimizedBar.Visible = true
+-- Mobile tap zone (top-left)
+local mobileTap = Instance.new("TextButton")
+mobileTap.Size = UDim2.new(0, 80, 0, 60)
+mobileTap.Position = UDim2.new(0, 0, 0, 0)
+mobileTap.BackgroundTransparency = 1
+mobileTap.Text = ""
+mobileTap.Parent = screenGui
+mobileTap.MouseButton1Click:Connect(function()
+    if mainFrame.Visible then
+        mainFrame.Visible = false
     else
-        if minimizedBar.Visible then
-            minimizedBar.Visible = false
-        end
-        main.Visible = true
-        -- Reset to Home page and show quick panel when opening
-        switchPage("Home")
-        quickPanel.Visible = true
+        mainFrame.Visible = true
+        refreshPlayerList("")
     end
 end)
 
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("✅ Admin Panel Loaded Successfully!")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("📌 Press F2 to toggle panel")
-print("📱 Tap top-left on mobile")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("✨ FLY CONTROLS (NO SPINNING!):")
-print("  🖥️ PC: WASD + Space/Ctrl")
-print("  📱 Mobile: Touch controls")
-print("  🛡️ No spinning, no losing control!")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("⚡ QUICK COMMANDS ONLY ON HOME PAGE")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+minimizeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+end)
+
+-- ==================== COMMAND BAR (F3) ====================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F3 then
+        getNumberInput("Set Walk Speed:", 16, 16, 500, "Speed", function(speed)
+            humanoid.WalkSpeed = speed
+            activeStates.walkspeed = speed
+            showNotification(string.format("🏃 Walk Speed: %s", speed), Color3.fromRGB(100, 200, 255))
+        end)
+    elseif input.KeyCode == Enum.KeyCode.F4 then
+        getNumberInput("Set Jump Power:", 50, 50, 500, "Power", function(power)
+            humanoid.JumpPower = power
+            activeStates.jumppower = power
+            showNotification(string.format("🦘 Jump Power: %s", power), Color3.fromRGB(255, 150, 100))
+        end)
+    elseif input.KeyCode == Enum.KeyCode.F5 then
+        toggleFly()
+    elseif input.KeyCode == Enum.KeyCode.F6 then
+        toggleGodmode()
+    elseif input.KeyCode == Enum.KeyCode.F7 then
+        toggleInvisible()
+    elseif input.KeyCode == Enum.KeyCode.F8 then
+        toggleESP()
+    end
+end)
+
+-- ==================== INITIALIZATION ====================
+refreshPlayerList("")
+showNotification("Admin Panel Ready | F2 to toggle | F5 Fly | F6 Godmode | F8 ESP", Color3.fromRGB(80, 200, 255))
+
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("✅ FULL ADMIN PANEL LOADED SUCCESSFULLY")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("📋 TABLE COLUMNS: AVATAR | USERNAME | STATUS | ROLE | LOCATION | ACTIONS")
+print("🎯 Ban → ESP | Message → Spectate")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("⌨️ HOTKEYS:")
+print("   F2 - Toggle Panel")
+print("   F3 - Walk Speed")
+print("   F4 - Jump Power")
+print("   F5 - Fly Mode")
+print("   F6 - Godmode")
+print("   F7 - Invisible")
+print("   F8 - ESP Toggle")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("📱 Mobile: Tap top-left corner to open/close")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
